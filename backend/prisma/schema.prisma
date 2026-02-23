@@ -1,0 +1,893 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               Int       @id @default(autoincrement())
+  name             String
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  roleId           Int       @map("role_id")
+  department       String?
+  isActive         Boolean   @default(true) @map("is_active")
+  twoFactorEnabled Boolean   @default(false) @map("two_factor_enabled")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  organizationId   Int?      @map("organization_id")
+
+  role           Role         @relation(fields: [roleId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  oofStatuses    OofStatus[]
+  delegateOofStatuses    OofStatus[]          @relation("DelegateUser")
+
+  leadsAssigned           Lead[]
+  opportunitiesAssigned   Opportunity[]
+  quotationsCreated       Quotation[]
+  quoteApprovals          QuoteApproval[]
+  purchaseOrdersValidated PurchaseOrder[]
+  ovfsApproved            Ovf[]
+  warehouseReceipts       WarehouseReceipt[]
+  scmExpensesApproved     ScmExpense[]
+  deploymentsAsTl         Deployment[]
+  balActivitiesAssigned   BalActivity[]
+  uatTestCasesTested      UatTestCase[]
+  projectsAsTl            Project[]
+  projectTasksAssigned    ProjectTask[]
+  paymentFollowupsLogged  PaymentFollowup[]
+  dailyUpdatesAuthored    DailyUpdate[]          @relation("DailyUpdateMember")
+  dailyUpdatesValidated   DailyUpdate[]          @relation("DailyUpdateValidatedBy")
+  agreementsRequested     Agreement[]
+  policiesCreated         Policy[]
+  policyAcknowledgements  PolicyAcknowledgement[]
+  attachments             Attachment[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  dashboardPreference     DashboardPreference?
+  apiFetchSessions        ApiFetchSession[]
+
+  @@map("users")
+}
+
+model Role {
+  id              Int     @id @default(autoincrement())
+  name            String
+  permissionsJson Json    @map("permissions_json")
+
+  users           User[]
+  notificationPreferences NotificationPreference[]
+
+  @@map("roles")
+}
+
+model OofStatus {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  startDate      DateTime @map("start_date")
+  endDate        DateTime @map("end_date")
+  delegateUserId Int?     @map("delegate_user_id")
+
+  user           User     @relation(fields: [userId], references: [id])
+  delegateUser   User?    @relation("DelegateUser", fields: [delegateUserId], references: [id])
+
+  @@map("oof_status")
+}
+
+model Lead {
+  id             Int       @id @default(autoincrement())
+  companyName    String    @map("company_name")
+  contactName    String    @map("contact_name")
+  designation    String?
+  phone          String
+  email          String
+  source         String
+  industry       String?
+  city           String?
+  state          String?
+  requirement    String?
+  estimatedValue Decimal?  @map("estimated_value")
+  assignedToId   Int?      @map("assigned_to")
+  status         String
+  lostReason     String?   @map("lost_reason")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  assignedTo     User?     @relation(fields: [assignedToId], references: [id])
+  opportunities  Opportunity[]
+  notes          LeadNote[]
+  emails         LeadEmail[]
+  activities     LeadActivity[]
+
+  @@map("leads")
+  @@index([assignedToId])
+  @@index([status])
+}
+
+model LeadNote {
+  id        Int      @id @default(autoincrement())
+  leadId    Int      @map("lead_id")
+  authorId  Int?     @map("author_id")
+  body      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead      Lead     @relation(fields: [leadId], references: [id])
+
+  @@map("lead_notes")
+  @@index([leadId])
+}
+
+model LeadEmail {
+  id          Int      @id @default(autoincrement())
+  leadId      Int      @map("lead_id")
+  to          String
+  subject     String
+  body        String
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdById Int?     @map("created_by")
+
+  lead        Lead     @relation(fields: [leadId], references: [id])
+
+  @@map("lead_emails")
+  @@index([leadId])
+}
+
+model LeadActivity {
+  id          Int      @id @default(autoincrement())
+  leadId      Int      @map("lead_id")
+  type        String
+  title       String
+  dueDate     DateTime? @map("due_date")
+  status      String
+  createdAt   DateTime @default(now()) @map("created_at")
+  completedAt DateTime? @map("completed_at")
+
+  lead        Lead     @relation(fields: [leadId], references: [id])
+
+  @@map("lead_activities")
+  @@index([leadId, status])
+}
+
+model Opportunity {
+  id               Int       @id @default(autoincrement())
+  leadId           Int       @map("lead_id")
+  companyName      String    @map("company_name")
+  contactName      String    @map("contact_name")
+  assignedToId     Int?      @map("assigned_to")
+  stage            String
+  boqAttachmentUrl String?   @map("boq_attachment_url")
+  sowAttachmentUrl String?   @map("sow_attachment_url")
+  estimatedValue   Decimal?  @map("estimated_value")
+  lostReason       String?   @map("lost_reason")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  lead             Lead      @relation(fields: [leadId], references: [id])
+  assignedTo       User?     @relation(fields: [assignedToId], references: [id])
+
+  quotations       Quotation[]
+  purchaseOrders   PurchaseOrder[]
+  scmOrders        ScmOrder[]
+  deployments      Deployment[]
+  agreements       Agreement[]
+
+  @@map("opportunities")
+  @@index([assignedToId])
+  @@index([stage])
+}
+
+model Quotation {
+  id                Int      @id @default(autoincrement())
+  opportunityId     Int      @map("opportunity_id")
+  quoteNumber       String   @map("quote_number")
+  version           String
+  date              DateTime
+  validUntil        DateTime @map("valid_until")
+  customerDetails   Json     @map("customer_details_json")
+  lineItems         Json     @map("line_items_json")
+  hwSubtotal        Decimal  @map("hw_subtotal")
+  swSubtotal        Decimal  @map("sw_subtotal")
+  svcSubtotal       Decimal  @map("svc_subtotal")
+  oemCost           Decimal  @map("oem_cost")
+  hwMarginPct       Decimal  @map("hw_margin_pct")
+  swMarginPct       Decimal  @map("sw_margin_pct")
+  svcMarginPct      Decimal  @map("svc_margin_pct")
+  gstPct            Decimal  @map("gst_pct")
+  grandTotal        Decimal  @map("grand_total")
+  status            String
+  pdfUrl            String?  @map("pdf_url")
+  createdById       Int      @map("created_by")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  opportunity       Opportunity @relation(fields: [opportunityId], references: [id])
+  createdBy         User        @relation(fields: [createdById], references: [id])
+  approvals         QuoteApproval[]
+  purchaseOrders    PurchaseOrder[]
+
+  @@map("quotations")
+  @@index([quoteNumber])
+}
+
+model QuoteApproval {
+  id          Int      @id @default(autoincrement())
+  quotationId Int      @map("quotation_id")
+  approverId  Int      @map("approver_id")
+  decision    String
+  comments    String?
+  decidedAt   DateTime @map("decided_at")
+
+  quotation   Quotation @relation(fields: [quotationId], references: [id])
+  approver    User      @relation(fields: [approverId], references: [id])
+
+  @@map("quote_approvals")
+}
+
+model PurchaseOrder {
+  id            Int       @id @default(autoincrement())
+  opportunityId Int       @map("opportunity_id")
+  quotationId   Int?      @map("quotation_id")
+  poNumber      String    @map("po_number")
+  poDate        DateTime  @map("po_date")
+  poValue       Decimal   @map("po_value")
+  attachmentUrl String?   @map("attachment_url")
+  validatedById Int?      @map("validated_by")
+  validatedAt   DateTime? @map("validated_at")
+  status        String
+
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  quotation     Quotation?  @relation(fields: [quotationId], references: [id])
+  validatedBy   User?       @relation(fields: [validatedById], references: [id])
+  ovf           Ovf?
+
+  @@map("purchase_orders")
+}
+
+model Ovf {
+  id            Int      @id @default(autoincrement())
+  purchaseOrderId Int    @map("purchase_order_id") @unique
+  formData      Json     @map("form_data_json")
+  approvedById  Int?     @map("approved_by")
+  approvedAt    DateTime? @map("approved_at")
+  status        String
+  attachmentUrl String?  @map("attachment_url")
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  approvedBy    User?         @relation(fields: [approvedById], references: [id])
+  scmOrders     ScmOrder[]
+
+  @@map("ovf")
+}
+
+model ScmOrder {
+  id               Int       @id @default(autoincrement())
+  ovfId            Int       @map("ovf_id")
+  opportunityId    Int       @map("opportunity_id")
+  distributorName  String    @map("distributor_name")
+  distributorPoRef String?   @map("distributor_po_ref")
+  orderDate        DateTime  @map("order_date")
+  expectedDelivery DateTime? @map("expected_delivery")
+  status           String
+  notes            String?
+
+  ovf              Ovf        @relation(fields: [ovfId], references: [id])
+  opportunity      Opportunity @relation(fields: [opportunityId], references: [id])
+  warehouseReceipts WarehouseReceipt[]
+  scmExpenses       ScmExpense[]
+
+  @@map("scm_orders")
+}
+
+model WarehouseReceipt {
+  id              Int       @id @default(autoincrement())
+  scmOrderId      Int       @map("scm_order_id")
+  receivedDate    DateTime  @map("received_date")
+  grnAttachmentUrl String?  @map("grn_attachment_url")
+  receivedById    Int       @map("received_by")
+
+  scmOrder        ScmOrder  @relation(fields: [scmOrderId], references: [id])
+  receivedBy      User      @relation(fields: [receivedById], references: [id])
+  dispatches      Dispatch[]
+
+  @@map("warehouse_receipts")
+}
+
+model Dispatch {
+  id                       Int       @id @default(autoincrement())
+  warehouseReceiptId       Int       @map("warehouse_receipt_id")
+  dispatchDate             DateTime  @map("dispatch_date")
+  vehicleDetails           String?   @map("vehicle_details")
+  driverContact            String?   @map("driver_contact")
+  challanUrl               String?   @map("challan_url")
+  deliveryConfirmationUrl  String?   @map("delivery_confirmation_url")
+  deliveredAt              DateTime? @map("delivered_at")
+
+  warehouseReceipt         WarehouseReceipt @relation(fields: [warehouseReceiptId], references: [id])
+  invoices                 Invoice[]
+  deployments              Deployment[]
+
+  @@map("dispatches")
+}
+
+model ScmExpense {
+  id          Int       @id @default(autoincrement())
+  scmOrderId  Int       @map("scm_order_id")
+  category    String
+  amount      Decimal
+  date        DateTime
+  receiptUrl  String?   @map("receipt_url")
+  status      String
+  approvedById Int?     @map("approved_by")
+
+  scmOrder    ScmOrder  @relation(fields: [scmOrderId], references: [id])
+  approvedBy  User?     @relation(fields: [approvedById], references: [id])
+
+  @@map("scm_expenses")
+}
+
+model Deployment {
+  id             Int       @id @default(autoincrement())
+  opportunityId  Int       @map("opportunity_id")
+  dispatchId     Int       @map("dispatch_id")
+  projectName    String    @map("project_name")
+  customer       String
+  assignedTlId   Int       @map("assigned_tl")
+  stage          String
+  sowSignoffUrl  String?   @map("sow_signoff_url")
+  startDate      DateTime? @map("start_date")
+  expectedGolive DateTime? @map("expected_golive")
+  actualGolive   DateTime? @map("actual_golive")
+  status         String
+
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id])
+  dispatch       Dispatch    @relation(fields: [dispatchId], references: [id])
+  assignedTl     User        @relation(fields: [assignedTlId], references: [id])
+  siteSurveys    SiteSurvey[]
+  balActivities  BalActivity[]
+  uatTestCases   UatTestCase[]
+
+  @@map("deployments")
+}
+
+model SiteSurvey {
+  id                     Int       @id @default(autoincrement())
+  deploymentId           Int       @map("deployment_id")
+  surveyData             Json      @map("survey_data_json")
+  floorPlanUrl           String?   @map("floor_plan_url")
+  engineerSignatureUrl   String?   @map("engineer_signature_url")
+  customerSignatureUrl   String?   @map("customer_signature_url")
+  submittedAt            DateTime? @map("submitted_at")
+
+  deployment             Deployment @relation(fields: [deploymentId], references: [id])
+
+  @@map("site_surveys")
+}
+
+model BalActivity {
+  id                 Int       @id @default(autoincrement())
+  deploymentId       Int       @map("deployment_id")
+  taskName           String    @map("task_name")
+  assignedEngineerId Int?      @map("assigned_engineer_id")
+  estimatedHours     Decimal   @map("estimated_hours")
+  dependencyIds      String?   @map("dependency_ids")
+  status             String
+  completedAt        DateTime? @map("completed_at")
+
+  deployment         Deployment @relation(fields: [deploymentId], references: [id])
+  assignedEngineer   User?      @relation(fields: [assignedEngineerId], references: [id])
+
+  @@map("bal_activities")
+}
+
+model UatTestCase {
+  id             Int       @id @default(autoincrement())
+  deploymentId   Int       @map("deployment_id")
+  testName       String    @map("test_name")
+  expectedResult String    @map("expected_result")
+  actualResult   String?   @map("actual_result")
+  passFail       String?   @map("pass_fail")
+  comments       String?
+  testedById     Int?      @map("tested_by")
+  testedAt       DateTime? @map("tested_at")
+
+  deployment     Deployment @relation(fields: [deploymentId], references: [id])
+  testedBy       User?      @relation(fields: [testedById], references: [id])
+
+  @@map("uat_test_cases")
+}
+
+model Invoice {
+  id              Int       @id @default(autoincrement())
+  dispatchId      Int       @map("dispatch_id")
+  invoiceNumber   String    @map("invoice_number")
+  invoiceDate     DateTime  @map("invoice_date")
+  dueDate         DateTime  @map("due_date")
+  lineItems       Json      @map("line_items_json")
+  gst             Json      @map("gst_json")
+  grandTotal      Decimal   @map("grand_total")
+  paymentTerms    String    @map("payment_terms")
+  bankDetails     Json      @map("bank_details_json")
+  status          String
+  pdfUrl          String?   @map("pdf_url")
+
+  dispatch        Dispatch  @relation(fields: [dispatchId], references: [id])
+  payments        PaymentReceived[]
+  followups       PaymentFollowup[]
+
+  @@map("invoices")
+  @@index([invoiceNumber])
+}
+
+model PaymentFollowup {
+  id               Int       @id @default(autoincrement())
+  invoiceId        Int       @map("invoice_id")
+  followupDate     DateTime  @map("followup_date")
+  contactMode      String    @map("contact_mode")
+  notes            String?
+  nextFollowupDate DateTime? @map("next_followup_date")
+  loggedById       Int       @map("logged_by")
+
+  invoice          Invoice   @relation(fields: [invoiceId], references: [id])
+  loggedBy         User      @relation(fields: [loggedById], references: [id])
+
+  @@map("payment_followups")
+}
+
+model PaymentReceived {
+  id          Int       @id @default(autoincrement())
+  invoiceId   Int       @map("invoice_id")
+  amount      Decimal
+  paymentDate DateTime  @map("payment_date")
+  reference   String?
+  receiptUrl  String?   @map("receipt_url")
+
+  invoice     Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments_received")
+}
+
+model Project {
+  id             Int       @id @default(autoincrement())
+  type           String
+  name           String
+  customer       String
+  assignedTlId   Int       @map("assigned_tl")
+  teamMembers    Json      @map("team_members_json")
+  startDate      DateTime? @map("start_date")
+  endDate        DateTime? @map("end_date")
+  status         String
+  description    String?
+
+  assignedTl     User      @relation(fields: [assignedTlId], references: [id])
+  tasks          ProjectTask[]
+
+  @@map("projects")
+}
+
+model ProjectTask {
+  id          Int       @id @default(autoincrement())
+  projectId   Int       @map("project_id")
+  title       String
+  description String?
+  assignedToId Int?     @map("assigned_to")
+  dueDate     DateTime? @map("due_date")
+  priority    String
+  skillTag    String?   @map("skill_tag")
+  status      String
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  project     Project   @relation(fields: [projectId], references: [id])
+  assignedTo  User?     @relation(fields: [assignedToId], references: [id])
+  dailyUpdates DailyUpdate[]
+
+  @@map("project_tasks")
+}
+
+model DailyUpdate {
+  id              Int       @id @default(autoincrement())
+  taskId          Int       @map("task_id")
+  memberId        Int       @map("member_id")
+  updateText      String    @map("update_text")
+  evidenceUrl     String?   @map("evidence_url")
+  submittedAt     DateTime  @map("submitted_at")
+  validatedById   Int?      @map("validated_by")
+  validationStatus String?  @map("validation_status")
+  feedback        String?
+
+  task            ProjectTask @relation(fields: [taskId], references: [id])
+  member          User        @relation("DailyUpdateMember", fields: [memberId], references: [id])
+  validatedBy     User?       @relation("DailyUpdateValidatedBy", fields: [validatedById], references: [id])
+
+  @@map("daily_updates")
+}
+
+model Agreement {
+  id             Int       @id @default(autoincrement())
+  opportunityId  Int       @map("opportunity_id")
+  requestedById  Int       @map("requested_by")
+  stage          String
+  currentDraftUrl String?  @map("current_draft_url")
+  signedUrl      String?   @map("signed_url")
+  versions       Json      @map("versions_json")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id])
+  requestedBy    User        @relation(fields: [requestedById], references: [id])
+
+  @@map("agreements")
+}
+
+model Policy {
+  id             Int       @id @default(autoincrement())
+  name           String
+  category       String
+  effectiveDate  DateTime  @map("effective_date")
+  departments    Json      @map("departments_json")
+  documentUrl    String    @map("document_url")
+  status         String
+  reviewDate     DateTime  @map("review_date")
+  createdById    Int       @map("created_by")
+
+  createdBy      User      @relation(fields: [createdById], references: [id])
+  acknowledgements PolicyAcknowledgement[]
+
+  @@map("policies")
+}
+
+model PolicyAcknowledgement {
+  id            Int       @id @default(autoincrement())
+  policyId      Int       @map("policy_id")
+  userId        Int       @map("user_id")
+  acknowledgedAt DateTime @map("acknowledged_at")
+
+  policy        Policy    @relation(fields: [policyId], references: [id])
+  user          User      @relation(fields: [userId], references: [id])
+
+  @@map("policy_acknowledgements")
+}
+
+model Attachment {
+  id             Int       @id @default(autoincrement())
+  ownerUserId    Int?      @map("owner_user_id")
+  entityType     String    @map("entity_type")
+  entityId       Int       @map("entity_id")
+  fileName       String    @map("file_name")
+  url            String
+  mimeType       String    @map("mime_type")
+  sizeBytes      Int       @map("size_bytes")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  ownerUser      User?     @relation(fields: [ownerUserId], references: [id])
+
+  @@map("attachments")
+  @@index([entityType, entityId])
+}
+
+model AuditLog {
+  id          Int       @id @default(autoincrement())
+  userId      Int?      @map("user_id")
+  action      String
+  entityType  String    @map("entity_type")
+  entityId    Int       @map("entity_id")
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User?     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+  @@index([entityType, entityId])
+}
+
+model Notification {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  type        String
+  title       String
+  message     String
+  priority    String
+  channels    Json
+  readAt      DateTime? @map("read_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+  @@index([userId, readAt])
+}
+
+enum PresalesStage {
+  INITIATED
+  LEAD_HANDOVER
+  REQUIREMENT_ANALYSIS
+  SOLUTION_DESIGN
+  SYSTEM_DESIGN
+  TECH_STACK_FINALIZATION
+  BOQ_CREATION
+  POC
+  PROPOSAL_GENERATION
+  DEAL_CLOSURE_SUPPORT
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model CompanyProfile {
+  id          Int     @id @default(autoincrement())
+  name        String
+  logoUrl     String? @map("logo_url")
+  address     String?
+  gstin       String? @map("gstin")
+  bankDetails Json?   @map("bank_details_json")
+
+  @@map("company_profile")
+}
+
+model Organization {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique
+  modules   Json     @map("modules_json")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users     User[]
+
+  @@map("organizations")
+}
+
+model ApprovalConfig {
+  id             Int      @id @default(autoincrement())
+  hwMarginMinPct Decimal  @map("hw_margin_min_pct")
+  swMarginMinPct Decimal  @map("sw_margin_min_pct")
+  svcMarginMinPct Decimal @map("svc_margin_min_pct")
+
+  @@map("approval_config")
+}
+
+model RevenueTarget {
+  id        Int      @id @default(autoincrement())
+  year      Int
+  month     Int
+  target    Decimal
+
+  @@map("revenue_targets")
+  @@unique([year, month])
+}
+
+model NotificationPreference {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @map("user_id")
+  roleId    Int?     @map("role_id")
+  triggerKey String  @map("trigger_key")
+  channels  Json     @map("channels_json")
+
+  user      User?    @relation(fields: [userId], references: [id])
+  role      Role?    @relation(fields: [roleId], references: [id])
+
+  @@map("notification_preferences")
+}
+
+model DashboardPreference {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id") @unique
+  config    Json     @map("config_json")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("dashboard_preferences")
+}
+
+model Product {
+  id          Int      @id @default(autoincrement())
+  name        String
+  category    String
+  unit        String
+  defaultPrice Decimal @map("default_price")
+
+  @@map("products")
+}
+
+model Distributor {
+  id          Int      @id @default(autoincrement())
+  name        String
+  contact     String?
+  leadTimeDays Int?    @map("lead_time_days")
+  territory   String?
+
+  @@map("distributors")
+}
+
+model Industry {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+
+  @@map("industries")
+}
+
+model LeadSource {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+
+  @@map("lead_sources")
+}
+
+model LossReason {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+
+  @@map("loss_reasons")
+}
+
+model Department {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+
+  @@map("departments")
+}
+
+model SkillTag {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+
+  @@map("skill_tags")
+}
+
+model ApiFetchSession {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  name       String
+  url        String
+  method     String
+  headers    Json     @map("headers_json")
+  response   Json     @map("response_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("api_fetch_sessions")
+  @@index([userId])
+}
+
+model PresalesProject {
+  id                String             @id @default(cuid())
+  leadId            String?
+  title             String
+  clientName        String
+  assignedTo        String
+  assignedBy        String
+  currentStage      PresalesStage      @default(INITIATED)
+  priority          Priority           @default(MEDIUM)
+  estimatedValue    Float?
+  expectedCloseDate DateTime?
+  winProbability    Float              @default(0)
+  status            String             @default("active")
+  lostReason        String?
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  stages       PresalesStageLog[]
+  boq          BOQ?
+  poc          POC?
+  proposal     Proposal?
+  requirements RequirementDoc?
+  solution     SolutionDesign?
+  activities   PresalesActivity[]
+}
+
+model PresalesStageLog {
+  id               String          @id @default(cuid())
+  projectId        String
+  stage            PresalesStage
+  completedAt      DateTime        @default(now())
+  completedBy      String
+  notes            String?
+  timeTakenMinutes Int?
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+}
+
+model RequirementDoc {
+  id            String          @id @default(cuid())
+  projectId     String          @unique
+  rawNotes      String?
+  functionalReq Json?
+  technicalReq  Json?
+  constraints   String?
+  stakeholders  Json?
+  completedAt   DateTime?
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+}
+
+model SolutionDesign {
+  id              String          @id @default(cuid())
+  projectId       String          @unique
+  architectureUrl String?
+  diagramUrl      String?
+  techStack       Json?
+  competitors     Json?
+  recommendedOption String?
+  justification   String?
+  completedAt     DateTime?
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+}
+
+model BOQ {
+  id            String          @id @default(cuid())
+  projectId     String          @unique
+  lineItems     Json
+  totalValue    Float?
+  oemName       String?
+  validity      DateTime?
+  attachmentUrl String?
+  effortDays    Int?
+  resourceCount Int?
+  status        String          @default("draft")
+  version       Int             @default(1)
+  completedAt   DateTime?
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+}
+
+model POC {
+  id              String          @id @default(cuid())
+  projectId       String          @unique
+  objective       String?
+  scope           String?
+  successCriteria Json?
+  environment     String?
+  assignedEngineer String?
+  startDate       DateTime?
+  endDate         DateTime?
+  outcome         String?
+  findings        String?
+  evidenceUrls    Json?
+  status          String          @default("planned")
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+}
+
+model Proposal {
+  id               String          @id @default(cuid())
+  projectId        String          @unique
+  executiveSummary String?
+  scopeOfWork      String?
+  technicalApproach String?
+  commercials      Json?
+  timeline         Json?
+  teamStructure    Json?
+  termsConditions  String?
+  pdfUrl           String?
+  version          Int             @default(1)
+  status           String          @default("draft")
+  sentAt           DateTime?
+  clientFeedback   String?
+  completedAt      DateTime?
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+}
+
+model PresalesActivity {
+  id          String          @id @default(cuid())
+  projectId   String
+  type        String
+  description String
+  createdBy   String
+  fileUrl     String?
+  createdAt   DateTime        @default(now())
+
+  project PresalesProject @relation(fields: [projectId], references: [id])
+
+  @@index([projectId])
+}

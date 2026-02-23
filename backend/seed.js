@@ -1,0 +1,143 @@
+const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcryptjs");
+
+const prisma = new PrismaClient();
+
+async function ensureRole(name) {
+  const existing = await prisma.role.findFirst({ where: { name } });
+  if (existing) return existing;
+  return prisma.role.create({
+    data: {
+      name,
+      permissionsJson: {},
+    },
+  });
+}
+
+async function main() {
+  const superAdminRole = await ensureRole("SUPER_ADMIN");
+  const adminRole = await ensureRole("ADMIN");
+  const userRole = await ensureRole("USER");
+
+  const superAdminPwd = await bcrypt.hash("SuperAdmin@123", 10);
+  const adminPwd = await bcrypt.hash("Admin@123", 10);
+  const userPwd = await bcrypt.hash("User@123", 10);
+
+  const defaultOrg = await prisma.organization.upsert({
+    where: { code: "cachedigitech-internal" },
+    update: {},
+    create: {
+      name: "Cachedigitech Internal",
+      code: "cachedigitech-internal",
+      modules: ["CRM", "HRMS"],
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "superadmin@cachedigitech.com" },
+    update: {},
+    create: {
+      name: "Super Admin",
+      email: "superadmin@cachedigitech.com",
+      passwordHash: superAdminPwd,
+      roleId: superAdminRole.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "admin@cachedigitech.com" },
+    update: {},
+    create: {
+      name: "Admin",
+      email: "admin@cachedigitech.com",
+      passwordHash: adminPwd,
+      roleId: adminRole.id,
+      organizationId: defaultOrg.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "user@cachedigitech.com" },
+    update: {},
+    create: {
+      name: "User",
+      email: "user@cachedigitech.com",
+      passwordHash: userPwd,
+      roleId: userRole.id,
+      organizationId: defaultOrg.id,
+      isActive: true,
+    },
+  });
+
+  const leadCount = await prisma.lead.count();
+  if (leadCount === 0) {
+    const admin = await prisma.user.findFirst({
+      where: { email: "admin@cachedigitech.com" },
+    });
+
+    const assignedToId = admin?.id ?? null;
+
+    await prisma.lead.createMany({
+      data: [
+        {
+          companyName: "Zenora Health Systems",
+          contactName: "Aritra Singh",
+          designation: "IT Head",
+          phone: "+91-9876543210",
+          email: "aritra.singh@zenorahealth.com",
+          source: "Inbound – Website",
+          industry: "Healthcare",
+          city: "Mumbai",
+          state: "Maharashtra",
+          requirement: "Enterprise CRM rollout across 12 hospitals with OPD integration",
+          estimatedValue: 18000000,
+          status: "Qualified",
+          assignedToId,
+        },
+        {
+          companyName: "Northfield Logistics",
+          contactName: "Megha Rao",
+          designation: "COO",
+          phone: "+91-9833011122",
+          email: "megha.rao@northfieldlogistics.in",
+          source: "Partner – Channel",
+          industry: "Logistics",
+          city: "Bengaluru",
+          state: "Karnataka",
+          requirement: "Control tower for fleet, invoicing and collections",
+          estimatedValue: 12500000,
+          status: "Proposal",
+          assignedToId,
+        },
+        {
+          companyName: "Aurelius Finance",
+          contactName: "Rahul Verma",
+          designation: "CIO",
+          phone: "+91-9819002211",
+          email: "rahul.verma@aureliusfinance.com",
+          source: "Outbound – SDR",
+          industry: "Financial Services",
+          city: "Delhi",
+          state: "Delhi NCR",
+          requirement: "Unified CRM for wealth, retail and SME lending teams",
+          estimatedValue: 22000000,
+          status: "New",
+          assignedToId,
+        },
+      ],
+    });
+  }
+}
+
+main()
+  .then(async () => {
+    console.log("Seed complete");
+    await prisma.$disconnect();
+  })
+  .catch(async e => {
+    console.error(e);
+    await prisma.$disconnect();
+    process.exit(1);
+  });

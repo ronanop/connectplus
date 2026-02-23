@@ -1,0 +1,69 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-geist: "Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-dm-sans: "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-jetbrains: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --bg-base: #F7F6F2;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F0EDE6;
+  --border: #E2DDD6;
+  --text-primary: #0A0F1E;
+  --accent-primary: #1A3DE4;
+  --accent-gold: #D4AF37;
+  --success: #059669;
+  --warning: #D97706;
+  --danger: #DC2626;
+}
+
+html.dark {
+  --bg-base: #080C14;
+  --bg-surface: #0F1623;
+  --bg-elevated: #141B2D;
+  --border: #1E2A42;
+  --text-primary: #E8EDF5;
+  --accent-primary: #4D9FFF;
+  --accent-gold: #FFD700;
+  --success: #00E676;
+  --warning: #FFB300;
+  --danger: #FF4D4D;
+}
+
+@keyframes presales-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+.presales-stage-current {
+  animation: presales-pulse 1.5s ease-out infinite;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-dm-sans);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.2s ease;
+}
+
+body {
+  min-height: 100vh;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
