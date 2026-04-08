@@ -19,19 +19,6 @@
   --danger: #DC2626;
 }
 
-html.dark {
-  --bg-base: #080C14;
-  --bg-surface: #0F1623;
-  --bg-elevated: #141B2D;
-  --border: #1E2A42;
-  --text-primary: #E8EDF5;
-  --accent-primary: #4D9FFF;
-  --accent-gold: #FFD700;
-  --success: #00E676;
-  --warning: #FFB300;
-  --danger: #FF4D4D;
-}
-
 @keyframes presales-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55);

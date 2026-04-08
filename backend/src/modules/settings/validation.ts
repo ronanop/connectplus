@@ -1,11 +1,18 @@
 import { z } from "zod";
 
+const tagsField = z
+  .array(z.string().trim().min(1).max(80))
+  .max(30)
+  .optional();
+
 export const createUserSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(6),
   roleId: z.number().int(),
   department: z.string().min(1).optional(),
+  reportsToId: z.number().int().positive().nullable().optional(),
+  tags: tagsField,
 });
 
 export const inviteUserSchema = z.object({
@@ -22,6 +29,8 @@ export const updateUserSchema = z.object({
   department: z.string().min(1).optional(),
   roleId: z.number().int().optional(),
   isActive: z.boolean().optional(),
+  reportsToId: z.union([z.number().int().positive(), z.null()]).optional(),
+  tags: tagsField,
 });
 
 export const oofSchema = z.object({
@@ -59,4 +68,17 @@ export const notificationPreferenceSchema = z.object({
 
 export const masterNameSchema = z.object({
   name: z.string().min(1),
+});
+
+export const microsoftDirectoryQuerySchema = z.object({
+  domain: z.string().min(3).optional().default("cachedigitech.com"),
+});
+
+export const importMicrosoftDirectorySchema = z.object({
+  defaultRoleId: z.number().int(),
+  domain: z.string().min(3).optional().default("cachedigitech.com"),
+});
+
+export const purgeUsersExceptKeeperSchema = z.object({
+  confirmation: z.literal("DELETE ALL OTHER USERS"),
 });

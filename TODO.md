@@ -1,4 +1,4 @@
-# Cachedigitech CRM & Operations Platform – Implementation To‑Do List
+# Connectplus CRM & Operations Platform – Implementation To‑Do List
 
 This document tracks the build workflow across frontend/ and backend/. Work through phases in order; sub‑items can run in parallel where it makes sense.
 

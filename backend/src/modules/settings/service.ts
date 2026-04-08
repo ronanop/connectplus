@@ -2,13 +2,209 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../prisma";
 import { mailer } from "../../utils/mailer";
 import crypto from "crypto";
+import { getAppGraphClient } from "../../utils/graphAppClient";
+import { ApiError } from "../../middleware/errorHandler";
+import { mergeUserInto } from "./userMerge";
+import { normalizeEmailKey, normalizeNameKey } from "../../utils/normalizeUserIdentity";
+import { CONNECTPLUS_KEEPER_EMAIL } from "./keeperEmail";
+
+export type MicrosoftOrgUserRow = {
+  graphId: string;
+  displayName: string;
+  email: string;
+  department: string | null;
+  userPrincipalName: string;
+};
+
+/** Matches CRM areas (sidebar); created on first departments list if missing. */
+const DEFAULT_DEPARTMENT_NAMES = [
+  "Sales",
+  "Presales",
+  "SCM",
+  "Deployment",
+  "Cloud",
+  "Cyber Security",
+  "Network Security",
+  "ISR",
+  "Accounts",
+  "IT Support",
+  "Software Development",
+  "Legal and Compliance",
+  "Creative Department",
+  "HR Department",
+  "Network Help Desk",
+] as const;
+
+async function ensureDefaultDepartments(): Promise<void> {
+  const rows = await prisma.department.findMany({ select: { name: true } });
+  const have = new Set(rows.map(r => r.name));
+  for (const name of DEFAULT_DEPARTMENT_NAMES) {
+    if (!have.has(name)) {
+      await prisma.department.create({ data: { name } });
+    }
+  }
+}
+
+function tagsFromJson(v: unknown): string[] {
+  if (v == null) {
+    return [];
+  }
+  if (!Array.isArray(v)) {
+    return [];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of v) {
+    if (typeof x !== "string") {
+      continue;
+    }
+    const n = x.trim();
+    if (!n) {
+      continue;
+    }
+    const key = n.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
+function normalizeTagsList(tags: string[] | undefined): string[] {
+  if (!tags?.length) {
+    return [];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tags) {
+    const n = t.trim();
+    if (!n || n.length > 80) {
+      continue;
+    }
+    const key = n.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(n);
+    if (out.length >= 30) {
+      break;
+    }
+  }
+  return out;
+}
+
+async function assertReportingChainValid(userId: number, managerId: number | null): Promise<void> {
+  if (managerId === null) {
+    return;
+  }
+  if (managerId === userId) {
+    throw new ApiError(400, "A user cannot report to themselves");
+  }
+  const manager = await prisma.user.findUnique({ where: { id: managerId }, select: { id: true } });
+  if (!manager) {
+    throw new ApiError(400, "Reporting manager not found");
+  }
+  let current: number | null = managerId;
+  const seen = new Set<number>();
+  for (let depth = 0; depth < 200 && current != null; depth += 1) {
+    if (current === userId) {
+      throw new ApiError(400, "This reporting line would create a cycle");
+    }
+    if (seen.has(current)) {
+      break;
+    }
+    seen.add(current);
+    const nextMgr: { reportsToId: number | null } | null = await prisma.user.findUnique({
+      where: { id: current },
+      select: { reportsToId: true },
+    });
+    current = nextMgr?.reportsToId ?? null;
+  }
+}
+
+async function fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix: string): Promise<{
+  domainSuffix: string;
+  users: MicrosoftOrgUserRow[];
+}> {
+  const suffix = domainSuffix.startsWith("@") ? domainSuffix.toLowerCase() : `@${domainSuffix.toLowerCase()}`;
+  const client = await getAppGraphClient();
+  if (!client) {
+    throw new ApiError(
+      500,
+      "Microsoft Graph is not configured. Set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET.",
+    );
+  }
+
+  const collected: MicrosoftOrgUserRow[] = [];
+  let path: string | null = "/users?$select=id,displayName,mail,userPrincipalName,department&$top=999";
+
+  try {
+    while (path) {
+      const res: any = await client.api(path).get();
+      const rows = res.value || [];
+      for (const u of rows) {
+        const mail = (u.mail || "").trim().toLowerCase();
+        const upn = (u.userPrincipalName || "").trim().toLowerCase();
+        const primary = mail || (upn.includes("@") ? upn : "");
+        if (!primary.endsWith(suffix)) {
+          continue;
+        }
+        const email = mail || upn;
+        if (!email) {
+          continue;
+        }
+        collected.push({
+          graphId: u.id,
+          displayName: u.displayName || email.split("@")[0],
+          email,
+          department: u.department ?? null,
+          userPrincipalName: u.userPrincipalName || "",
+        });
+      }
+      const next = res["@odata.nextLink"] as string | undefined;
+      if (next) {
+        const url = new URL(next);
+        path = url.pathname.replace(/^\/v1\.0\b/i, "") + url.search;
+      } else {
+        path = null;
+      }
+    }
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    const code = e?.statusCode;
+    if (code === 403 || /Insufficient privileges|Authorization_RequestDenied|403/i.test(msg)) {
+      throw new ApiError(
+        403,
+        "Directory read was denied. In Azure AD, grant this app the Microsoft Graph application permission User.Read.All and admin consent.",
+      );
+    }
+    throw new ApiError(500, `Failed to list directory users: ${msg}`);
+  }
+
+  const byEmail = new Map<string, MicrosoftOrgUserRow>();
+  for (const row of collected) {
+    if (!byEmail.has(row.email)) {
+      byEmail.set(row.email, row);
+    }
+  }
+
+  return { domainSuffix: suffix, users: Array.from(byEmail.values()) };
+}
 
 export const settingsService = {
-  listUsers: () => {
-    return prisma.user.findMany({
-      include: { role: true },
+  listRoles: () => prisma.role.findMany({ orderBy: { name: "asc" } }),
+  listUsers: async () => {
+    const rows = await prisma.user.findMany({
+      include: { role: true, reportsTo: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
     });
+    return rows.map(({ tagsJson, ...rest }) => ({
+      ...rest,
+      tags: tagsFromJson(tagsJson),
+    }));
   },
 
   createUser: async (data: {
@@ -17,17 +213,31 @@ export const settingsService = {
     password: string;
     roleId: number;
     department?: string;
+    reportsToId?: number | null;
+    tags?: string[];
   }) => {
+    if (data.reportsToId != null) {
+      const mgr = await prisma.user.findUnique({ where: { id: data.reportsToId }, select: { id: true } });
+      if (!mgr) {
+        throw new ApiError(400, "Reporting manager not found");
+      }
+    }
     const passwordHash = await bcrypt.hash(data.password, 10);
-    return prisma.user.create({
+    const tags = normalizeTagsList(data.tags);
+    const created = await prisma.user.create({
       data: {
         name: data.name,
         email: data.email,
         passwordHash,
         roleId: data.roleId,
         department: data.department,
+        reportsToId: data.reportsToId ?? null,
+        tagsJson: tags.length ? tags : undefined,
       },
+      include: { role: true, reportsTo: { select: { id: true, name: true, email: true } } },
     });
+    const { tagsJson, ...base } = created;
+    return { ...base, tags: tagsFromJson(tagsJson) };
   },
 
   inviteUserWithEmail: async (data: {
@@ -55,12 +265,12 @@ export const settingsService = {
 
     await mailer.sendMail({
       to: data.email,
-      from: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "no-reply@cachedigitech.com",
-      subject: "Your Cachedigitech CRM access",
+      from: process.env.AZURE_FROM_EMAIL ?? "no-reply@cachedigitech.com",
+      subject: "Your Connectplus CRM access",
       html: `
         <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 16px;">
-          <h2 style="margin-bottom: 8px;">Welcome to Cachedigitech CRM</h2>
-          <p style="margin: 4px 0;">You have been granted access to the Cachedigitech CRM workspace.</p>
+          <h2 style="margin-bottom: 8px;">Welcome to Connectplus CRM</h2>
+          <p style="margin: 4px 0;">You have been granted access to the Connectplus CRM workspace.</p>
           <p style="margin: 4px 0;">Use the credentials below to sign in:</p>
           <pre style="background:#0f172a;color:#e5e7eb;padding:12px;border-radius:8px;margin-top:8px;margin-bottom:8px;">
 Email: ${data.email}
@@ -84,11 +294,40 @@ Password: ${generatedPassword}
     return user;
   },
 
-  updateUser: (id: number, data: { name?: string; department?: string; roleId?: number; isActive?: boolean }) => {
-    return prisma.user.update({
+  updateUser: async (
+    id: number,
+    data: {
+      name?: string;
+      department?: string;
+      roleId?: number;
+      isActive?: boolean;
+      reportsToId?: number | null;
+      tags?: string[];
+    },
+  ) => {
+    if (data.reportsToId !== undefined) {
+      await assertReportingChainValid(id, data.reportsToId);
+    }
+    await prisma.user.update({
       where: { id },
-      data,
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.department !== undefined && { department: data.department || null }),
+        ...(data.roleId !== undefined && { roleId: data.roleId }),
+        ...(data.isActive !== undefined && { isActive: data.isActive }),
+        ...(data.reportsToId !== undefined && { reportsToId: data.reportsToId }),
+        ...(data.tags !== undefined && { tagsJson: normalizeTagsList(data.tags) }),
+      },
     });
+    const row = await prisma.user.findUnique({
+      where: { id },
+      include: { role: true, reportsTo: { select: { id: true, name: true, email: true } } },
+    });
+    if (!row) {
+      throw new ApiError(404, "User not found");
+    }
+    const { tagsJson, ...base } = row;
+    return { ...base, tags: tagsFromJson(tagsJson) };
   },
 
   setUserOof: (userId: number, oof: { startDate: string; endDate: string; delegateUserId?: number | null }) => {
@@ -195,9 +434,184 @@ Password: ${generatedPassword}
   listLossReasons: () => prisma.lossReason.findMany(),
   createLossReason: (data: { name: string }) => prisma.lossReason.create({ data }),
 
-  listDepartments: () => prisma.department.findMany(),
+  listDepartments: async () => {
+    await ensureDefaultDepartments();
+    return prisma.department.findMany({ orderBy: { name: "asc" } });
+  },
   createDepartment: (data: { name: string }) => prisma.department.create({ data }),
 
   listSkillTags: () => prisma.skillTag.findMany(),
   createSkillTag: (data: { name: string }) => prisma.skillTag.create({ data }),
+
+  listMicrosoftOrgUsersByDomainSuffix: (domainSuffix: string) => fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix),
+
+  importMicrosoftOrgUsersMissing: async (defaultRoleId: number, domainSuffix: string) => {
+    const { users } = await fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix);
+    const role = await prisma.role.findUnique({ where: { id: defaultRoleId } });
+    if (!role) {
+      throw new ApiError(400, "Invalid role");
+    }
+
+    const existing = await prisma.user.findMany({ select: { email: true } });
+    const have = new Set(existing.map(u => u.email.toLowerCase()));
+
+    let imported = 0;
+    let skippedAlreadyInCrm = 0;
+    for (const row of users) {
+      const emailLower = row.email.toLowerCase();
+      if (have.has(emailLower)) {
+        skippedAlreadyInCrm += 1;
+        continue;
+      }
+      const passwordHash = await bcrypt.hash(crypto.randomBytes(16).toString("base64url"), 10);
+      await prisma.user.create({
+        data: {
+          name: row.displayName,
+          email: row.email,
+          passwordHash,
+          roleId: defaultRoleId,
+          department: row.department ?? undefined,
+        },
+      });
+      have.add(emailLower);
+      imported += 1;
+    }
+
+    return {
+      imported,
+      skippedAlreadyInCrm,
+      totalInDirectory: users.length,
+    };
+  },
+
+  listDuplicateUserGroups: async () => {
+    const users = await prisma.user.findMany({
+      include: { role: true },
+      orderBy: { id: "asc" },
+    });
+    const byEmail = new Map<string, typeof users>();
+    for (const u of users) {
+      const key = normalizeEmailKey(u.email);
+      const list = byEmail.get(key) ?? [];
+      list.push(u);
+      byEmail.set(key, list);
+    }
+    const emailDuplicateGroups = [...byEmail.entries()]
+      .filter(([, list]) => list.length > 1)
+      .map(([normalizedEmail, list]) => ({
+        normalizedEmail,
+        keeperUserId: list[0].id,
+        users: list.map(row => ({
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          isActive: row.isActive,
+          createdAt: row.createdAt,
+          role: row.role ? { id: row.role.id, name: row.role.name } : null,
+        })),
+      }));
+
+    const byName = new Map<string, typeof users>();
+    for (const u of users) {
+      const nk = normalizeNameKey(u.name);
+      if (nk.length < 2) {
+        continue;
+      }
+      const list = byName.get(nk) ?? [];
+      list.push(u);
+      byName.set(nk, list);
+    }
+    const nameDuplicateGroups = [...byName.entries()]
+      .filter(([, list]) => list.length > 1)
+      .map(([normalizedName, list]) => ({
+        normalizedName,
+        users: list.map(row => ({
+          id: row.id,
+          email: row.email,
+          name: row.name,
+          isActive: row.isActive,
+          createdAt: row.createdAt,
+          role: row.role ? { id: row.role.id, name: row.role.name } : null,
+        })),
+      }))
+      .sort((a, b) => b.users.length - a.users.length);
+
+    return { emailDuplicateGroups, nameDuplicateGroups };
+  },
+
+  deduplicateUsersByNormalizedEmail: async () => {
+    const users = await prisma.user.findMany({
+      select: { id: true, email: true },
+      orderBy: { id: "asc" },
+    });
+    const byNorm = new Map<string, number[]>();
+    for (const u of users) {
+      const key = normalizeEmailKey(u.email);
+      const ids = byNorm.get(key) ?? [];
+      ids.push(u.id);
+      byNorm.set(key, ids);
+    }
+    let removedUsers = 0;
+    let groupsProcessed = 0;
+    for (const ids of byNorm.values()) {
+      if (ids.length < 2) {
+        continue;
+      }
+      groupsProcessed += 1;
+      const keeperId = ids[0];
+      for (let i = 1; i < ids.length; i += 1) {
+        await mergeUserInto(ids[i], keeperId);
+        removedUsers += 1;
+      }
+    }
+    return { removedUsers, groupsProcessed };
+  },
+
+  /**
+   * Removes every user except the keeper mailbox by merging each into the keeper (same as duplicate merge),
+   * so foreign keys stay valid. Intended for a one-time reset before re-importing directory users.
+   */
+  purgeAllUsersExceptConnectPlusKeeper: async () => {
+    const rows = await prisma.user.findMany({ select: { id: true, email: true } });
+    const keeper = rows.find(u => normalizeEmailKey(u.email) === normalizeEmailKey(CONNECTPLUS_KEEPER_EMAIL));
+    if (!keeper) {
+      throw new ApiError(
+        404,
+        `Keeper account ${CONNECTPLUS_KEEPER_EMAIL} was not found. Create it before running a purge.`,
+      );
+    }
+    const others = rows.filter(u => u.id !== keeper.id).sort((a, b) => a.id - b.id);
+    let removed = 0;
+    for (const u of others) {
+      await mergeUserInto(u.id, keeper.id);
+      removed += 1;
+    }
+    return {
+      removed,
+      keeperId: keeper.id,
+      keeperEmail: CONNECTPLUS_KEEPER_EMAIL,
+    };
+  },
+
+  /**
+   * Deletes one user by merging their assignments into the Connect Plus account when present,
+   * otherwise into the lowest remaining user id, so FK constraints stay valid.
+   */
+  deleteUserByMerging: async (userId: number) => {
+    const rows = await prisma.user.findMany({ select: { id: true, email: true } });
+    const victim = rows.find(u => u.id === userId);
+    if (!victim) {
+      throw new ApiError(404, "User not found");
+    }
+    const others = rows.filter(u => u.id !== userId).sort((a, b) => a.id - b.id);
+    if (others.length === 0) {
+      throw new ApiError(400, "Cannot delete the only user in the system");
+    }
+    const preferredKeeper = others.find(
+      u => normalizeEmailKey(u.email) === normalizeEmailKey(CONNECTPLUS_KEEPER_EMAIL),
+    );
+    const mergeTarget = preferredKeeper ?? others[0];
+    await mergeUserInto(userId, mergeTarget.id);
+    return { mergedIntoUserId: mergeTarget.id };
+  },
 };

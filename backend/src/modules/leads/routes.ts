@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { authenticate } from "../../middleware/auth";
+import { requireDepartmentAccess } from "../../middleware/departmentAccess";
 import { validateRequest } from "../../middleware/validateRequest";
 import { addLeadNoteSchema, createLeadSchema, sendLeadEmailSchema, updateLeadSchema, updateLeadStatusSchema } from "./validation";
 import {
@@ -21,6 +22,7 @@ import {
 export const leadsRouter = Router();
 
 leadsRouter.use(authenticate);
+leadsRouter.use(requireDepartmentAccess("sales"));
 
 leadsRouter.get("/", asyncHandler(listLeads));
 leadsRouter.get("/pipeline", asyncHandler(getPipelineSummary));

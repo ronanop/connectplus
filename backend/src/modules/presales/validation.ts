@@ -18,6 +18,10 @@ export const priorityEnum = z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]);
 
 export const listPresalesProjectsQuerySchema = z.object({
   search: z.string().optional(),
+  linkedLeadId: z
+    .string()
+    .optional()
+    .transform(value => (value ? String(parseInt(value, 10)) : undefined)),
   stage: presalesStageEnum.or(z.literal("All")).optional(),
   priority: priorityEnum.or(z.literal("All")).optional(),
   status: z.string().optional(),
@@ -43,6 +47,7 @@ export const createPresalesProjectSchema = z.object({
   priority: priorityEnum.optional(),
   estimatedValue: z.number().optional(),
   expectedCloseDate: z.string().optional(),
+  handoffSummary: z.string().optional(),
   winProbability: z.number().min(0).max(1).optional(),
   status: z.string().optional(),
   lostReason: z.string().optional(),
@@ -51,10 +56,31 @@ export const createPresalesProjectSchema = z.object({
 
 export const updatePresalesProjectSchema = createPresalesProjectSchema.partial();
 
+export const advancePresalesStageSchema = z.object({
+  actorName: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const upsertRequirementDocSchema = z.object({
+  rawNotes: z.string().optional(),
+  functionalReq: z.array(z.unknown()).optional(),
+  technicalReq: z.array(z.unknown()).optional(),
+  scopeSplit: z.array(z.unknown()).optional(),
+  timelineNotes: z.string().optional(),
+  complianceSecurity: z.string().optional(),
+  handoffNotes: z.string().optional(),
+  constraints: z.string().optional(),
+  stakeholders: z.array(z.unknown()).optional(),
+});
+
 export const upsertSolutionDesignSchema = z.object({
   architectureUrl: z.string().url().optional().or(z.literal("")),
   diagramUrl: z.string().url().optional().or(z.literal("")),
   techStack: z.record(z.string(), z.array(z.string())).optional(),
+  systemDesignSummary: z.string().optional(),
+  deploymentTopology: z.string().optional(),
+  infraComponents: z.array(z.unknown()).optional(),
+  finalizedStack: z.record(z.string(), z.array(z.string())).optional(),
   competitors: z.array(z.unknown()).optional(),
   recommendedOption: z.string().optional(),
   justification: z.string().optional(),
@@ -81,6 +107,8 @@ export const upsertPocSchema = z.object({
   findings: z.string().optional(),
   evidenceUrls: z.array(z.string()).optional(),
   status: z.string().optional(),
+  gatingStatus: z.string().optional(),
+  waiverReason: z.string().optional(),
 });
 
 export const patchPocOutcomeSchema = z.object({
@@ -94,6 +122,9 @@ export const upsertProposalSchema = z.object({
   commercials: z.array(z.unknown()).optional(),
   timeline: z.array(z.unknown()).optional(),
   teamStructure: z.array(z.unknown()).optional(),
+  proposalSummary: z.string().optional(),
   termsConditions: z.string().optional(),
+  closureSupportNotes: z.string().optional(),
+  readyForSalesAt: z.string().optional(),
   status: z.string().optional(),
 });

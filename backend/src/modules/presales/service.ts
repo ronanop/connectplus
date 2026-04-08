@@ -2,8 +2,11 @@ import { differenceInDays } from "date-fns";
 import { prisma } from "../../prisma";
 import { presalesStageEnum, priorityEnum } from "./validation";
 
+const db = prisma as any;
+
 type ListProjectsParams = {
   search?: string;
+  linkedLeadId?: string;
   stage?: (typeof presalesStageEnum)["options"][number] | "All";
   priority?: (typeof priorityEnum)["options"][number] | "All";
   status?: string;
@@ -117,14 +120,18 @@ export const presalesService = {
       ];
     }
 
+    if (params.linkedLeadId) {
+      where.leadId = params.linkedLeadId;
+    }
+
     const [items, total] = await Promise.all([
-      prisma.presalesProject.findMany({
+      db.presalesProject.findMany({
         where,
         orderBy: { createdAt: "desc" },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
-      prisma.presalesProject.count({ where }),
+      db.presalesProject.count({ where }),
     ]);
 
     return {
@@ -136,7 +143,7 @@ export const presalesService = {
   },
 
   async getProjectById(id: string) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id },
       include: {
         stages: {
@@ -157,17 +164,18 @@ export const presalesService = {
   },
 
   async createProject(payload: any) {
-    const project = await prisma.presalesProject.create({
+    const project = await db.presalesProject.create({
       data: {
         leadId: payload.leadId ?? null,
         title: payload.title,
         clientName: payload.clientName,
         assignedTo: payload.assignedTo,
         assignedBy: payload.assignedBy,
-        currentStage: payload.currentStage ?? "INITIATED",
+        currentStage: payload.currentStage ?? "LEAD_HANDOVER",
         priority: payload.priority ?? "MEDIUM",
         estimatedValue: payload.estimatedValue ?? null,
         expectedCloseDate: payload.expectedCloseDate ? new Date(payload.expectedCloseDate) : null,
+        handoffSummary: payload.handoffSummary ?? null,
         winProbability: payload.winProbability ?? 0,
         status: payload.status ?? "active",
         lostReason: payload.lostReason ?? null,
@@ -175,7 +183,7 @@ export const presalesService = {
       },
     });
 
-    await prisma.presalesStageLog.create({
+    await db.presalesStageLog.create({
       data: {
         projectId: project.id,
         stage: project.currentStage,
@@ -189,7 +197,7 @@ export const presalesService = {
   },
 
   async updateProject(id: string, payload: any) {
-    const existing = await prisma.presalesProject.findUnique({
+    const existing = await db.presalesProject.findUnique({
       where: { id },
       include: {
         requirements: true,
@@ -203,7 +211,7 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const project = await prisma.presalesProject.update({
+    const project = await db.presalesProject.update({
       where: { id },
       data: {
         leadId: payload.leadId ?? undefined,
@@ -220,6 +228,7 @@ export const presalesService = {
               ? new Date(payload.expectedCloseDate)
               : null
             : undefined,
+        handoffSummary: payload.handoffSummary ?? undefined,
         winProbability: payload.winProbability ?? undefined,
         status: payload.status ?? undefined,
         lostReason: payload.lostReason ?? undefined,
@@ -238,7 +247,7 @@ export const presalesService = {
       requirements,
     });
 
-    const updated = await prisma.presalesProject.update({
+    const updated = await db.presalesProject.update({
       where: { id },
       data: {
         winProbability,
@@ -250,14 +259,14 @@ export const presalesService = {
 
   async getSummary() {
     const [activeCount, byStageRaw, stageLogs, closedProjects, pendingBoqCount] = await Promise.all([
-      prisma.presalesProject.count({
+      db.presalesProject.count({
         where: { status: "active" },
       }),
-      prisma.presalesProject.groupBy({
+      db.presalesProject.groupBy({
         by: ["currentStage"],
         _count: { _all: true },
       }),
-      prisma.presalesStageLog.findMany({
+      db.presalesStageLog.findMany({
         where: {
           timeTakenMinutes: {
             not: null,
@@ -267,7 +276,7 @@ export const presalesService = {
           timeTakenMinutes: true,
         },
       }),
-      prisma.presalesProject.findMany({
+      db.presalesProject.findMany({
         where: {
           OR: [{ status: "closed" }, { currentStage: "CLOSED" }],
         },
@@ -275,21 +284,21 @@ export const presalesService = {
           lostReason: true,
         },
       }),
-      prisma.bOQ.count({
+      db.bOQ.count({
         where: {
           status: "submitted",
         },
       }),
     ]);
 
-    const byStage = byStageRaw.map(row => ({
+    const byStage = byStageRaw.map((row: any) => ({
       stage: row.currentStage,
       count: row._count._all,
     }));
 
     let averageStageDurationDays = 0;
     if (stageLogs.length > 0) {
-      const totalMinutes = stageLogs.reduce((sum, log) => sum + (log.timeTakenMinutes ?? 0), 0);
+      const totalMinutes = stageLogs.reduce((sum: number, log: any) => sum + (log.timeTakenMinutes ?? 0), 0);
       const averageMinutes = totalMinutes / stageLogs.length;
       averageStageDurationDays = Math.round(averageMinutes / (60 * 24));
     }
@@ -298,7 +307,7 @@ export const presalesService = {
     if (closedProjects.length > 0) {
       let won = 0;
       let lost = 0;
-      closedProjects.forEach(project => {
+      closedProjects.forEach((project: any) => {
         if (project.lostReason && project.lostReason.trim().length > 0) {
           lost += 1;
         } else {
@@ -321,7 +330,7 @@ export const presalesService = {
   },
 
   async convertToOpportunity(projectId: string, userId?: number | null) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id: projectId },
     });
 
@@ -341,18 +350,27 @@ export const presalesService = {
 
     const { leadsService } = await import("../leads/service");
 
-    return leadsService.convertLeadToOpportunity(leadId, userId ?? null);
+    const conversion = await leadsService.convertLeadToOpportunity(leadId, userId ?? null);
+
+    await db.presalesProject.update({
+      where: { id: projectId },
+      data: {
+        convertedOpportunityId: conversion.opportunity.id,
+      },
+    });
+
+    return conversion;
   },
 
   async listStages(projectId: string) {
-    return prisma.presalesStageLog.findMany({
+    return db.presalesStageLog.findMany({
       where: { projectId },
       orderBy: { completedAt: "asc" },
     });
   },
 
   async advanceStage(projectId: string, actorName: string, notes?: string | null) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id: projectId },
       include: {
         stages: {
@@ -385,14 +403,14 @@ export const presalesService = {
 
     const nextStage = presalesStageEnum.options[currentStageIndex + 1];
 
-    const updatedProject = await prisma.presalesProject.update({
+    const updatedProject = await db.presalesProject.update({
       where: { id: projectId },
       data: {
         currentStage: nextStage,
       },
     });
 
-    await prisma.presalesStageLog.create({
+    await db.presalesStageLog.create({
       data: {
         projectId,
         stage: nextStage,
@@ -409,7 +427,7 @@ export const presalesService = {
       requirements: project.requirements,
     });
 
-    return prisma.presalesProject.update({
+    return db.presalesProject.update({
       where: { id: projectId },
       data: {
         winProbability,
@@ -418,13 +436,13 @@ export const presalesService = {
   },
 
   async getRequirementDoc(projectId: string) {
-    return prisma.requirementDoc.findUnique({
+    return db.requirementDoc.findUnique({
       where: { projectId },
     });
   },
 
   async upsertRequirementDoc(projectId: string, payload: any) {
-    const existing = await prisma.presalesProject.findUnique({
+    const existing = await db.presalesProject.findUnique({
       where: { id: projectId },
       include: {
         requirements: true,
@@ -437,22 +455,32 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const requirements = await prisma.requirementDoc.upsert({
+    const requirements = await db.requirementDoc.upsert({
       where: { projectId },
       update: {
         rawNotes: payload.rawNotes ?? undefined,
         functionalReq: payload.functionalReq ?? undefined,
         technicalReq: payload.technicalReq ?? undefined,
+        scopeSplit: payload.scopeSplit ?? undefined,
+        timelineNotes: payload.timelineNotes ?? undefined,
+        complianceSecurity: payload.complianceSecurity ?? undefined,
+        handoffNotes: payload.handoffNotes ?? undefined,
         constraints: payload.constraints ?? undefined,
         stakeholders: payload.stakeholders ?? undefined,
+        completedAt: new Date(),
       },
       create: {
         projectId,
         rawNotes: payload.rawNotes ?? null,
         functionalReq: payload.functionalReq ?? null,
         technicalReq: payload.technicalReq ?? null,
+        scopeSplit: payload.scopeSplit ?? null,
+        timelineNotes: payload.timelineNotes ?? null,
+        complianceSecurity: payload.complianceSecurity ?? null,
+        handoffNotes: payload.handoffNotes ?? null,
         constraints: payload.constraints ?? null,
         stakeholders: payload.stakeholders ?? null,
+        completedAt: new Date(),
       },
     });
 
@@ -463,7 +491,7 @@ export const presalesService = {
       requirements,
     });
 
-    await prisma.presalesProject.update({
+    await db.presalesProject.update({
       where: { id: projectId },
       data: {
         winProbability,
@@ -474,7 +502,7 @@ export const presalesService = {
   },
 
   async upsertSolutionDesign(projectId: string, payload: any) {
-    const existing = await prisma.presalesProject.findUnique({
+    const existing = await db.presalesProject.findUnique({
       where: { id: projectId },
     });
 
@@ -482,24 +510,34 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const solution = await prisma.solutionDesign.upsert({
+    const solution = await db.solutionDesign.upsert({
       where: { projectId },
       update: {
         architectureUrl: payload.architectureUrl ?? undefined,
         diagramUrl: payload.diagramUrl ?? undefined,
         techStack: payload.techStack ?? undefined,
+        systemDesignSummary: payload.systemDesignSummary ?? undefined,
+        deploymentTopology: payload.deploymentTopology ?? undefined,
+        infraComponents: payload.infraComponents ?? undefined,
+        finalizedStack: payload.finalizedStack ?? undefined,
         competitors: payload.competitors ?? undefined,
         recommendedOption: payload.recommendedOption ?? undefined,
         justification: payload.justification ?? undefined,
+        completedAt: new Date(),
       },
       create: {
         projectId,
         architectureUrl: payload.architectureUrl ?? null,
         diagramUrl: payload.diagramUrl ?? null,
         techStack: payload.techStack ?? null,
+        systemDesignSummary: payload.systemDesignSummary ?? null,
+        deploymentTopology: payload.deploymentTopology ?? null,
+        infraComponents: payload.infraComponents ?? null,
+        finalizedStack: payload.finalizedStack ?? null,
         competitors: payload.competitors ?? null,
         recommendedOption: payload.recommendedOption ?? null,
         justification: payload.justification ?? null,
+        completedAt: new Date(),
       },
     });
 
@@ -507,7 +545,7 @@ export const presalesService = {
   },
 
   async upsertBoq(projectId: string, payload: any) {
-    const existing = await prisma.presalesProject.findUnique({
+    const existing = await db.presalesProject.findUnique({
       where: { id: projectId },
     });
 
@@ -528,7 +566,7 @@ export const presalesService = {
       }, 0);
     }
 
-    const boq = await prisma.bOQ.upsert({
+    const boq = await db.bOQ.upsert({
       where: { projectId },
       update: {
         lineItems: payload.lineItems ?? undefined,
@@ -539,6 +577,7 @@ export const presalesService = {
         effortDays: payload.effortDays ?? undefined,
         resourceCount: payload.resourceCount ?? undefined,
         status: payload.status ?? undefined,
+        completedAt: payload.status === "submitted" ? new Date() : undefined,
       },
       create: {
         projectId,
@@ -550,6 +589,7 @@ export const presalesService = {
         effortDays: payload.effortDays ?? null,
         resourceCount: payload.resourceCount ?? null,
         status: payload.status ?? "draft",
+        completedAt: payload.status === "submitted" ? new Date() : null,
       },
     });
 
@@ -557,7 +597,7 @@ export const presalesService = {
   },
 
   async submitBoq(projectId: string) {
-    const existing = await prisma.bOQ.findUnique({
+    const existing = await db.bOQ.findUnique({
       where: { projectId },
     });
 
@@ -565,7 +605,7 @@ export const presalesService = {
       throw new Error("BOQ not found for project");
     }
 
-    const boq = await prisma.bOQ.update({
+    const boq = await db.bOQ.update({
       where: { projectId },
       data: {
         status: "submitted",
@@ -576,7 +616,7 @@ export const presalesService = {
   },
 
   async upsertPoc(projectId: string, payload: any) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id: projectId },
       include: {
         requirements: true,
@@ -589,7 +629,7 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const poc = await prisma.pOC.upsert({
+    const poc = await db.pOC.upsert({
       where: { projectId },
       update: {
         objective: payload.objective ?? undefined,
@@ -602,6 +642,8 @@ export const presalesService = {
         findings: payload.findings ?? undefined,
         evidenceUrls: payload.evidenceUrls ?? undefined,
         status: payload.status ?? undefined,
+        gatingStatus: payload.gatingStatus ?? undefined,
+        waiverReason: payload.waiverReason ?? undefined,
       },
       create: {
         projectId,
@@ -615,6 +657,8 @@ export const presalesService = {
         findings: payload.findings ?? null,
         evidenceUrls: payload.evidenceUrls ?? [],
         status: payload.status ?? "planned",
+        gatingStatus: payload.gatingStatus ?? null,
+        waiverReason: payload.waiverReason ?? null,
       },
     });
 
@@ -625,7 +669,7 @@ export const presalesService = {
       requirements: project.requirements,
     });
 
-    await prisma.presalesProject.update({
+    await db.presalesProject.update({
       where: { id: projectId },
       data: {
         winProbability,
@@ -636,7 +680,7 @@ export const presalesService = {
   },
 
   async setPocOutcome(projectId: string, outcome: string) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id: projectId },
       include: {
         requirements: true,
@@ -649,7 +693,7 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const poc = await prisma.pOC.upsert({
+    const poc = await db.pOC.upsert({
       where: { projectId },
       update: {
         outcome,
@@ -677,7 +721,7 @@ export const presalesService = {
       requirements: project.requirements,
     });
 
-    await prisma.presalesProject.update({
+    await db.presalesProject.update({
       where: { id: projectId },
       data: {
         winProbability,
@@ -688,7 +732,7 @@ export const presalesService = {
   },
 
   async upsertProposal(projectId: string, payload: any) {
-    const project = await prisma.presalesProject.findUnique({
+    const project = await db.presalesProject.findUnique({
       where: { id: projectId },
       include: {
         requirements: true,
@@ -701,7 +745,7 @@ export const presalesService = {
       throw new Error("Presales project not found");
     }
 
-    const proposal = await prisma.proposal.upsert({
+    const proposal = await db.proposal.upsert({
       where: { projectId },
       update: {
         executiveSummary: payload.executiveSummary ?? undefined,
@@ -710,8 +754,12 @@ export const presalesService = {
         commercials: payload.commercials ?? undefined,
         timeline: payload.timeline ?? undefined,
         teamStructure: payload.teamStructure ?? undefined,
+        proposalSummary: payload.proposalSummary ?? undefined,
         termsConditions: payload.termsConditions ?? undefined,
+        closureSupportNotes: payload.closureSupportNotes ?? undefined,
+        readyForSalesAt: payload.readyForSalesAt ? new Date(payload.readyForSalesAt) : undefined,
         status: payload.status ?? undefined,
+        completedAt: payload.status === "sent" ? new Date() : undefined,
       },
       create: {
         projectId,
@@ -721,8 +769,12 @@ export const presalesService = {
         commercials: payload.commercials ?? null,
         timeline: payload.timeline ?? null,
         teamStructure: payload.teamStructure ?? null,
+        proposalSummary: payload.proposalSummary ?? null,
         termsConditions: payload.termsConditions ?? null,
+        closureSupportNotes: payload.closureSupportNotes ?? null,
+        readyForSalesAt: payload.readyForSalesAt ? new Date(payload.readyForSalesAt) : null,
         status: payload.status ?? "draft",
+        completedAt: payload.status === "sent" ? new Date() : null,
       },
     });
 
@@ -733,7 +785,7 @@ export const presalesService = {
       requirements: project.requirements,
     });
 
-    await prisma.presalesProject.update({
+    await db.presalesProject.update({
       where: { id: projectId },
       data: {
         winProbability,
@@ -744,7 +796,7 @@ export const presalesService = {
   },
 
   async listBoqBoard() {
-    const items = await prisma.bOQ.findMany({
+    const items = await db.bOQ.findMany({
       orderBy: { completedAt: "desc" },
       include: {
         project: true,
@@ -755,7 +807,7 @@ export const presalesService = {
   },
 
   async listPocBoard() {
-    const items = await prisma.pOC.findMany({
+    const items = await db.pOC.findMany({
       orderBy: { startDate: "desc" },
       include: {
         project: true,
@@ -766,7 +818,7 @@ export const presalesService = {
   },
 
   async listProposalBoard() {
-    const items = await prisma.proposal.findMany({
+    const items = await db.proposal.findMany({
       orderBy: { sentAt: "desc" },
       include: {
         project: true,

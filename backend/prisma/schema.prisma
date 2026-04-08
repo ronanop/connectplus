@@ -26,10 +26,22 @@ model User {
 
   leadsAssigned           Lead[]
   opportunitiesAssigned   Opportunity[]
+  salesOwnedOpportunities Opportunity[]        @relation("OpportunitySalesOwner")
+  isrOwnedOpportunities   Opportunity[]        @relation("OpportunityIsrOwner")
   quotationsCreated       Quotation[]
   quoteApprovals          QuoteApproval[]
   purchaseOrdersValidated PurchaseOrder[]
+  oemAlignmentsOwned      OemAlignment[]       @relation("OemAlignmentOwner")
+  vendorQuotesReceived    VendorQuote[]        @relation("VendorQuoteOwner")
+  clientQuotesSubmitted   ClientQuoteSubmission[] @relation("ClientQuoteOwner")
+  clientFollowupsOwned    ClientFollowUp[]     @relation("ClientFollowUpOwner")
+  opportunityStageChanges OpportunityStageHistory[] @relation("OpportunityStageChangedBy")
+  scmPurchaseOrders       PurchaseOrder[]      @relation("PurchaseOrderScmOwner")
+  scmStageChanges         ScmStageHistory[]    @relation("ScmStageChangedBy")
   ovfsApproved            Ovf[]
+  deploymentStageChanges  DeploymentStageHistory[] @relation("DeploymentStageChangedBy")
+  cloudEngagementsAssigned CloudEngagement[]    @relation("CloudEngagementAssignedTl")
+  cloudStageChanges       CloudStageHistory[]   @relation("CloudStageChangedBy")
   warehouseReceipts       WarehouseReceipt[]
   scmExpensesApproved     ScmExpense[]
   deploymentsAsTl         Deployment[]
@@ -49,6 +61,12 @@ model User {
   notificationPreferences NotificationPreference[]
   dashboardPreference     DashboardPreference?
   apiFetchSessions        ApiFetchSession[]
+
+  reportsToId   Int?   @map("reports_to_id")
+  reportsTo     User?  @relation("UserReportsTo", fields: [reportsToId], references: [id], onDelete: SetNull)
+  directReports User[] @relation("UserReportsTo")
+  tagsJson      Json?  @map("tags_json")
+  companiesCreated Company[] @relation("CompaniesCreated")
 
   @@map("users")
 }
@@ -77,9 +95,33 @@ model OofStatus {
   @@map("oof_status")
 }
 
+model Company {
+  id             Int       @id @default(autoincrement())
+  name           String
+  website        String?
+  phone          String?
+  industry       String?
+  city           String?
+  state          String?
+  notes          String?
+  organizationId Int?      @map("organization_id")
+  createdById    Int?      @map("created_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdBy    User?         @relation("CompaniesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  leads        Lead[]
+
+  @@map("companies")
+  @@index([organizationId])
+  @@index([name])
+}
+
 model Lead {
   id             Int       @id @default(autoincrement())
   companyName    String    @map("company_name")
+  companyId      Int?      @map("company_id")
   contactName    String    @map("contact_name")
   designation    String?
   phone          String
@@ -91,11 +133,14 @@ model Lead {
   requirement    String?
   estimatedValue Decimal?  @map("estimated_value")
   assignedToId   Int?      @map("assigned_to")
+  leadType       String?   @map("lead_type")
+  entryOwnerType String?   @map("entry_owner_type")
   status         String
   lostReason     String?   @map("lost_reason")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
+  companyRecord  Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
   assignedTo     User?     @relation(fields: [assignedToId], references: [id])
   opportunities  Opportunity[]
   notes          LeadNote[]
@@ -105,6 +150,7 @@ model Lead {
   @@map("leads")
   @@index([assignedToId])
   @@index([status])
+  @@index([companyId])
 }
 
 model LeadNote {
@@ -157,26 +203,41 @@ model Opportunity {
   companyName      String    @map("company_name")
   contactName      String    @map("contact_name")
   assignedToId     Int?      @map("assigned_to")
+  salesOwnerId     Int?      @map("sales_owner_id")
+  isrOwnerId       Int?      @map("isr_owner_id")
   stage            String
+  salesStage       String    @default("LEAD_GENERATION") @map("sales_stage")
   boqAttachmentUrl String?   @map("boq_attachment_url")
   sowAttachmentUrl String?   @map("sow_attachment_url")
   estimatedValue   Decimal?  @map("estimated_value")
   lostReason       String?   @map("lost_reason")
+  closureStatus    String?   @map("closure_status")
+  closureReason    String?   @map("closure_reason")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   lead             Lead      @relation(fields: [leadId], references: [id])
   assignedTo       User?     @relation(fields: [assignedToId], references: [id])
+  salesOwner       User?     @relation("OpportunitySalesOwner", fields: [salesOwnerId], references: [id])
+  isrOwner         User?     @relation("OpportunityIsrOwner", fields: [isrOwnerId], references: [id])
 
   quotations       Quotation[]
+  oemAlignments    OemAlignment[]
+  vendorQuotes     VendorQuote[]
+  clientQuotes     ClientQuoteSubmission[]
+  clientFollowUps  ClientFollowUp[]
+  stageHistory     OpportunityStageHistory[]
+  scmStageHistory  ScmStageHistory[]
   purchaseOrders   PurchaseOrder[]
   scmOrders        ScmOrder[]
   deployments      Deployment[]
   agreements       Agreement[]
+  presalesProjects PresalesProject[]
 
   @@map("opportunities")
   @@index([assignedToId])
   @@index([stage])
+  @@index([salesStage])
 }
 
 model Quotation {
@@ -229,20 +290,126 @@ model PurchaseOrder {
   id            Int       @id @default(autoincrement())
   opportunityId Int       @map("opportunity_id")
   quotationId   Int?      @map("quotation_id")
+  clientQuoteSubmissionId Int? @map("client_quote_submission_id")
   poNumber      String    @map("po_number")
   poDate        DateTime  @map("po_date")
   poValue       Decimal   @map("po_value")
   attachmentUrl String?   @map("attachment_url")
   validatedById Int?      @map("validated_by")
+  scmOwnerId    Int?      @map("scm_owner_id")
+  scmHandoffAt  DateTime? @map("scm_handoff_at")
+  internalEtaDays Int?    @map("internal_eta_days")
   validatedAt   DateTime? @map("validated_at")
   status        String
 
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
   quotation     Quotation?  @relation(fields: [quotationId], references: [id])
+  clientQuoteSubmission ClientQuoteSubmission? @relation(fields: [clientQuoteSubmissionId], references: [id])
   validatedBy   User?       @relation(fields: [validatedById], references: [id])
+  scmOwner      User?       @relation("PurchaseOrderScmOwner", fields: [scmOwnerId], references: [id])
   ovf           Ovf?
 
   @@map("purchase_orders")
+}
+
+model OemAlignment {
+  id            Int       @id @default(autoincrement())
+  opportunityId Int       @map("opportunity_id")
+  vendorName    String    @map("vendor_name")
+  notes         String?
+  status        String
+  ownerId       Int?      @map("owner_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  owner         User?       @relation("OemAlignmentOwner", fields: [ownerId], references: [id])
+  vendorQuotes  VendorQuote[]
+
+  @@map("oem_alignments")
+  @@index([opportunityId])
+}
+
+model VendorQuote {
+  id              Int       @id @default(autoincrement())
+  opportunityId   Int       @map("opportunity_id")
+  oemAlignmentId  Int?      @map("oem_alignment_id")
+  vendorName      String    @map("vendor_name")
+  referenceNumber String?   @map("reference_number")
+  amount          Decimal?  @map("amount")
+  pricingJson     Json?     @map("pricing_json")
+  receivedDate    DateTime  @map("received_date")
+  validUntil      DateTime? @map("valid_until")
+  attachmentUrl   String?   @map("attachment_url")
+  remarks         String?
+  ownerId         Int?      @map("owner_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  opportunity     Opportunity  @relation(fields: [opportunityId], references: [id])
+  oemAlignment    OemAlignment? @relation(fields: [oemAlignmentId], references: [id])
+  owner           User?        @relation("VendorQuoteOwner", fields: [ownerId], references: [id])
+  clientQuotes    ClientQuoteSubmission[]
+
+  @@map("vendor_quotes")
+  @@index([opportunityId])
+}
+
+model ClientQuoteSubmission {
+  id              Int       @id @default(autoincrement())
+  opportunityId   Int       @map("opportunity_id")
+  vendorQuoteId   Int?      @map("vendor_quote_id")
+  quoteNumber     String    @map("quote_number")
+  version         String    @default("1")
+  amount          Decimal?  @map("amount")
+  submittedDate   DateTime  @map("submitted_date")
+  attachmentUrl   String?   @map("attachment_url")
+  status          String
+  ownerId         Int?      @map("owner_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  vendorQuote     VendorQuote? @relation(fields: [vendorQuoteId], references: [id])
+  owner           User?        @relation("ClientQuoteOwner", fields: [ownerId], references: [id])
+  followUps       ClientFollowUp[]
+  purchaseOrders  PurchaseOrder[]
+
+  @@map("client_quote_submissions")
+  @@index([opportunityId])
+}
+
+model ClientFollowUp {
+  id              Int       @id @default(autoincrement())
+  opportunityId   Int       @map("opportunity_id")
+  clientQuoteId   Int?      @map("client_quote_id")
+  followupDate    DateTime  @map("followup_date")
+  mode            String
+  summary         String
+  nextFollowupDate DateTime? @map("next_followup_date")
+  ownerId         Int?      @map("owner_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id])
+  clientQuote     ClientQuoteSubmission? @relation(fields: [clientQuoteId], references: [id])
+  owner           User?       @relation("ClientFollowUpOwner", fields: [ownerId], references: [id])
+
+  @@map("client_follow_ups")
+  @@index([opportunityId])
+}
+
+model OpportunityStageHistory {
+  id             Int       @id @default(autoincrement())
+  opportunityId  Int       @map("opportunity_id")
+  fromStage      String?   @map("from_stage")
+  toStage        String    @map("to_stage")
+  changedById    Int?      @map("changed_by_id")
+  notes          String?
+  changedAt      DateTime  @default(now()) @map("changed_at")
+
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id])
+  changedBy      User?       @relation("OpportunityStageChangedBy", fields: [changedById], references: [id])
+
+  @@map("opportunity_stage_history")
+  @@index([opportunityId])
 }
 
 model Ovf {
@@ -252,6 +419,8 @@ model Ovf {
   approvedById  Int?     @map("approved_by")
   approvedAt    DateTime? @map("approved_at")
   status        String
+  turnaroundDays Int?    @map("turnaround_days")
+  timeCalculationNotes String? @map("time_calculation_notes")
   attachmentUrl String?  @map("attachment_url")
 
   purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
@@ -268,7 +437,9 @@ model ScmOrder {
   distributorName  String    @map("distributor_name")
   distributorPoRef String?   @map("distributor_po_ref")
   orderDate        DateTime  @map("order_date")
+  distributorSentAt DateTime? @map("distributor_sent_at")
   expectedDelivery DateTime? @map("expected_delivery")
+  deliveredToWarehouseAt DateTime? @map("delivered_to_warehouse_at")
   status           String
   notes            String?
 
@@ -285,6 +456,8 @@ model WarehouseReceipt {
   scmOrderId      Int       @map("scm_order_id")
   receivedDate    DateTime  @map("received_date")
   grnAttachmentUrl String?  @map("grn_attachment_url")
+  mipMrmAttachmentUrl String? @map("mip_mrm_attachment_url")
+  warehouseNotes   String?   @map("warehouse_notes")
   receivedById    Int       @map("received_by")
 
   scmOrder        ScmOrder  @relation(fields: [scmOrderId], references: [id])
@@ -301,6 +474,8 @@ model Dispatch {
   vehicleDetails           String?   @map("vehicle_details")
   driverContact            String?   @map("driver_contact")
   challanUrl               String?   @map("challan_url")
+  customerWarehouseReceiptUrl String? @map("customer_warehouse_receipt_url")
+  accountsNotifiedAt       DateTime? @map("accounts_notified_at")
   deliveryConfirmationUrl  String?   @map("delivery_confirmation_url")
   deliveredAt              DateTime? @map("delivered_at")
 
@@ -335,10 +510,16 @@ model Deployment {
   customer       String
   assignedTlId   Int       @map("assigned_tl")
   stage          String
+  kickoffReadyAt DateTime? @map("kickoff_ready_at")
+  kickoffCompletedAt DateTime? @map("kickoff_completed_at")
+  materialsReadyAt DateTime? @map("materials_ready_at")
+  materialMovementAt DateTime? @map("material_movement_at")
   sowSignoffUrl  String?   @map("sow_signoff_url")
   startDate      DateTime? @map("start_date")
   expectedGolive DateTime? @map("expected_golive")
   actualGolive   DateTime? @map("actual_golive")
+  liveAt         DateTime? @map("live_at")
+  customerSignoffUrl String? @map("customer_signoff_url")
   status         String
 
   opportunity    Opportunity @relation(fields: [opportunityId], references: [id])
@@ -347,6 +528,8 @@ model Deployment {
   siteSurveys    SiteSurvey[]
   balActivities  BalActivity[]
   uatTestCases   UatTestCase[]
+  stageHistory   DeploymentStageHistory[]
+  cloudEngagements CloudEngagement[]
 
   @@map("deployments")
 }
@@ -356,6 +539,7 @@ model SiteSurvey {
   deploymentId           Int       @map("deployment_id")
   surveyData             Json      @map("survey_data_json")
   floorPlanUrl           String?   @map("floor_plan_url")
+  readinessStatus        String?   @map("readiness_status")
   engineerSignatureUrl   String?   @map("engineer_signature_url")
   customerSignatureUrl   String?   @map("customer_signature_url")
   submittedAt            DateTime? @map("submitted_at")
@@ -372,6 +556,7 @@ model BalActivity {
   assignedEngineerId Int?      @map("assigned_engineer_id")
   estimatedHours     Decimal   @map("estimated_hours")
   dependencyIds      String?   @map("dependency_ids")
+  taskCategory       String?   @map("task_category")
   status             String
   completedAt        DateTime? @map("completed_at")
 
@@ -389,6 +574,8 @@ model UatTestCase {
   actualResult   String?   @map("actual_result")
   passFail       String?   @map("pass_fail")
   comments       String?
+  signedOffByCustomer Boolean? @map("signed_off_by_customer")
+  signoffAt      DateTime? @map("signoff_at")
   testedById     Int?      @map("tested_by")
   testedAt       DateTime? @map("tested_at")
 
@@ -396,6 +583,72 @@ model UatTestCase {
   testedBy       User?      @relation(fields: [testedById], references: [id])
 
   @@map("uat_test_cases")
+}
+
+model DeploymentStageHistory {
+  id            Int       @id @default(autoincrement())
+  deploymentId  Int       @map("deployment_id")
+  fromStage     String?   @map("from_stage")
+  toStage       String    @map("to_stage")
+  changedById   Int?      @map("changed_by_id")
+  notes         String?
+  changedAt     DateTime  @default(now()) @map("changed_at")
+
+  deployment    Deployment @relation(fields: [deploymentId], references: [id])
+  changedBy     User?      @relation("DeploymentStageChangedBy", fields: [changedById], references: [id])
+
+  @@map("deployment_stage_history")
+  @@index([deploymentId])
+}
+
+model CloudEngagement {
+  id                    Int       @id @default(autoincrement())
+  deploymentId          Int       @map("deployment_id")
+  projectId             Int?      @map("project_id")
+  engagementName        String    @map("engagement_name")
+  customer              String
+  assignedTlId          Int       @map("assigned_tl_id")
+  stage                 String
+  status                String
+  supportModel          String?   @map("support_model")
+  slaJson               Json?     @map("sla_json")
+  intakeJson            Json?     @map("intake_json")
+  assessmentJson        Json?     @map("assessment_json")
+  architecturePlanJson  Json?     @map("architecture_plan_json")
+  securityFrameworkJson Json?     @map("security_framework_json")
+  migrationJson         Json?     @map("migration_json")
+  managedSupportJson    Json?     @map("managed_support_json")
+  migrationStartedAt    DateTime? @map("migration_started_at")
+  validatedAt           DateTime? @map("validated_at")
+  supportStartedAt      DateTime? @map("support_started_at")
+  notes                 String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  deployment            Deployment          @relation(fields: [deploymentId], references: [id])
+  project               Project?            @relation(fields: [projectId], references: [id])
+  assignedTl            User                @relation("CloudEngagementAssignedTl", fields: [assignedTlId], references: [id])
+  stageHistory          CloudStageHistory[]
+
+  @@map("cloud_engagements")
+  @@index([deploymentId])
+  @@index([projectId])
+}
+
+model CloudStageHistory {
+  id               Int       @id @default(autoincrement())
+  cloudEngagementId Int      @map("cloud_engagement_id")
+  fromStage        String?   @map("from_stage")
+  toStage          String    @map("to_stage")
+  changedById      Int?      @map("changed_by_id")
+  notes            String?
+  changedAt        DateTime  @default(now()) @map("changed_at")
+
+  cloudEngagement  CloudEngagement @relation(fields: [cloudEngagementId], references: [id])
+  changedBy        User?           @relation("CloudStageChangedBy", fields: [changedById], references: [id])
+
+  @@map("cloud_stage_history")
+  @@index([cloudEngagementId])
 }
 
 model Invoice {
@@ -410,6 +663,8 @@ model Invoice {
   paymentTerms    String    @map("payment_terms")
   bankDetails     Json      @map("bank_details_json")
   status          String
+  sentToAccountsAt DateTime? @map("sent_to_accounts_at")
+  sentToCustomerAt DateTime? @map("sent_to_customer_at")
   pdfUrl          String?   @map("pdf_url")
 
   dispatch        Dispatch  @relation(fields: [dispatchId], references: [id])
@@ -418,6 +673,22 @@ model Invoice {
 
   @@map("invoices")
   @@index([invoiceNumber])
+}
+
+model ScmStageHistory {
+  id            Int       @id @default(autoincrement())
+  opportunityId Int       @map("opportunity_id")
+  fromStage     String?   @map("from_stage")
+  toStage       String    @map("to_stage")
+  changedById   Int?      @map("changed_by_id")
+  notes         String?
+  changedAt     DateTime  @default(now()) @map("changed_at")
+
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  changedBy     User?       @relation("ScmStageChangedBy", fields: [changedById], references: [id])
+
+  @@map("scm_stage_history")
+  @@index([opportunityId])
 }
 
 model PaymentFollowup {
@@ -462,6 +733,7 @@ model Project {
 
   assignedTl     User      @relation(fields: [assignedTlId], references: [id])
   tasks          ProjectTask[]
+  cloudEngagements CloudEngagement[]
 
   @@map("projects")
 }
@@ -637,6 +909,7 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
 
   users     User[]
+  companies Company[]
 
   @@map("organizations")
 }
@@ -758,6 +1031,7 @@ model ApiFetchSession {
 model PresalesProject {
   id                String             @id @default(cuid())
   leadId            String?
+  convertedOpportunityId Int?          @map("converted_opportunity_id")
   title             String
   clientName        String
   assignedTo        String
@@ -766,6 +1040,7 @@ model PresalesProject {
   priority          Priority           @default(MEDIUM)
   estimatedValue    Float?
   expectedCloseDate DateTime?
+  handoffSummary    String?            @map("handoff_summary")
   winProbability    Float              @default(0)
   status            String             @default("active")
   lostReason        String?
@@ -773,6 +1048,7 @@ model PresalesProject {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
+  convertedOpportunity Opportunity?     @relation(fields: [convertedOpportunityId], references: [id])
   stages       PresalesStageLog[]
   boq          BOQ?
   poc          POC?
@@ -802,6 +1078,10 @@ model RequirementDoc {
   rawNotes      String?
   functionalReq Json?
   technicalReq  Json?
+  scopeSplit    Json?           @map("scope_split_json")
+  timelineNotes String?         @map("timeline_notes")
+  complianceSecurity String?    @map("compliance_security")
+  handoffNotes  String?         @map("handoff_notes")
   constraints   String?
   stakeholders  Json?
   completedAt   DateTime?
@@ -815,6 +1095,10 @@ model SolutionDesign {
   architectureUrl String?
   diagramUrl      String?
   techStack       Json?
+  systemDesignSummary String?    @map("system_design_summary")
+  deploymentTopology String?     @map("deployment_topology")
+  infraComponents Json?          @map("infra_components_json")
+  finalizedStack  Json?          @map("finalized_stack_json")
   competitors     Json?
   recommendedOption String?
   justification   String?
@@ -854,6 +1138,8 @@ model POC {
   findings        String?
   evidenceUrls    Json?
   status          String          @default("planned")
+  gatingStatus    String?         @map("gating_status")
+  waiverReason    String?         @map("waiver_reason")
 
   project PresalesProject @relation(fields: [projectId], references: [id])
 }
@@ -867,12 +1153,15 @@ model Proposal {
   commercials      Json?
   timeline         Json?
   teamStructure    Json?
+  proposalSummary  String?        @map("proposal_summary")
   termsConditions  String?
   pdfUrl           String?
   version          Int             @default(1)
   status           String          @default("draft")
   sentAt           DateTime?
   clientFeedback   String?
+  closureSupportNotes String?     @map("closure_support_notes")
+  readyForSalesAt  DateTime?      @map("ready_for_sales_at")
   completedAt      DateTime?
 
   project PresalesProject @relation(fields: [projectId], references: [id])

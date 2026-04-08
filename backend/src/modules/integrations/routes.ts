@@ -12,13 +12,13 @@ integrationsRouter.use(authenticate);
 
 integrationsRouter.post(
   "/fetch",
-  requireRoles(["SUPER_ADMIN", "ADMIN"]),
+  requireRoles(["SUPER_ADMIN"]),
   validateRequest(apiFetchRequestSchema),
   asyncHandler(executeApiFetch),
 );
 
 integrationsRouter.get(
   "/fetch/sessions",
-  requireRoles(["SUPER_ADMIN", "ADMIN"]),
+  requireRoles(["SUPER_ADMIN"]),
   asyncHandler(listApiFetchSessions),
 );

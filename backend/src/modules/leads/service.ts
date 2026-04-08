@@ -1,22 +1,24 @@
 import { prisma } from "../../prisma";
+import { ApiError } from "../../middleware/errorHandler";
 import { leadStatusEnum } from "./validation";
 
 const defaultStatuses = leadStatusEnum.options;
+const db = prisma as any;
 
 export const leadsService = {
   async ensureDemoData() {
-    const count = await prisma.lead.count();
+    const count = await db.lead.count();
     if (count > 0) {
       return;
     }
 
-    const admin = await prisma.user.findFirst({
+    const admin = await db.user.findFirst({
       where: { email: "admin@cachedigitech.com" },
     });
 
     const assignedToId = admin?.id ?? null;
 
-    await prisma.lead.createMany({
+    await db.lead.createMany({
       data: [
         {
           companyName: "Zenora Health Systems",
@@ -30,6 +32,8 @@ export const leadsService = {
           state: "Maharashtra",
           requirement: "Enterprise CRM rollout across 12 hospitals with OPD integration",
           estimatedValue: 18000000,
+          leadType: "NEW",
+          entryOwnerType: "SALES",
           status: "Qualified",
           assignedToId,
         },
@@ -45,6 +49,8 @@ export const leadsService = {
           state: "Karnataka",
           requirement: "Control tower for fleet, invoicing and collections",
           estimatedValue: 12500000,
+          leadType: "EXISTING",
+          entryOwnerType: "ISR",
           status: "Proposal",
           assignedToId,
         },
@@ -60,6 +66,8 @@ export const leadsService = {
           state: "Delhi NCR",
           requirement: "Unified CRM for wealth, retail and SME lending teams",
           estimatedValue: 22000000,
+          leadType: "NEW",
+          entryOwnerType: "SALES",
           status: "New",
           assignedToId,
         },
@@ -75,6 +83,8 @@ export const leadsService = {
           state: "Maharashtra",
           requirement: "Student lifecycle CRM with counselling and placements module",
           estimatedValue: 9000000,
+          leadType: "NEW",
+          entryOwnerType: "ISR",
           status: "Contacted",
           assignedToId,
         },
@@ -82,10 +92,14 @@ export const leadsService = {
     });
   },
 
-  async listLeads(params: { search?: string; status?: string; page: number; pageSize: number }) {
+  async listLeads(params: { search?: string; status?: string; companyId?: number; page: number; pageSize: number }) {
     await this.ensureDemoData();
 
     const where: any = {};
+
+    if (params.companyId) {
+      where.companyId = params.companyId;
+    }
 
     if (params.status && params.status !== "All") {
       where.status = params.status;
@@ -105,18 +119,21 @@ export const leadsService = {
     }
 
     const [items, total] = await Promise.all([
-      prisma.lead.findMany({
+      db.lead.findMany({
         where,
         orderBy: { createdAt: "desc" },
         include: {
           assignedTo: {
             select: { id: true, name: true },
           },
+          companyRecord: {
+            select: { id: true, name: true },
+          },
         },
         skip: (params.page - 1) * params.pageSize,
         take: params.pageSize,
       }),
-      prisma.lead.count({ where }),
+      db.lead.count({ where }),
     ]);
 
     return {
@@ -128,7 +145,8 @@ export const leadsService = {
   },
 
   async createLead(payload: {
-    companyName: string;
+    companyId?: number;
+    companyName?: string;
     contactName: string;
     email: string;
     phone: string;
@@ -138,12 +156,41 @@ export const leadsService = {
     state?: string;
     requirement?: string;
     estimatedValue?: number;
+    leadType?: string;
+    entryOwnerType?: string;
     status: string;
     assignedToId?: number | null;
-  }) {
-    const lead = await prisma.lead.create({
+  }, userId?: number | null) {
+    let resolvedCompanyName = (payload.companyName ?? "").trim();
+    let resolvedCompanyId: number | null = payload.companyId ?? null;
+
+    if (resolvedCompanyId) {
+      const comp = await prisma.company.findUnique({ where: { id: resolvedCompanyId } });
+      if (!comp) {
+        throw new ApiError(400, "Company not found");
+      }
+      if (!resolvedCompanyName) {
+        resolvedCompanyName = comp.name;
+      }
+      if (!payload.industry?.trim() && comp.industry) {
+        payload.industry = comp.industry;
+      }
+      if (!payload.city?.trim() && comp.city) {
+        payload.city = comp.city;
+      }
+      if (!payload.state?.trim() && comp.state) {
+        payload.state = comp.state;
+      }
+    }
+
+    if (!resolvedCompanyName) {
+      throw new ApiError(400, "Company name is required");
+    }
+
+    const lead = await db.lead.create({
       data: {
-        companyName: payload.companyName,
+        companyName: resolvedCompanyName,
+        companyId: resolvedCompanyId,
         contactName: payload.contactName,
         email: payload.email,
         phone: payload.phone,
@@ -153,8 +200,10 @@ export const leadsService = {
         state: payload.state,
         requirement: payload.requirement,
         estimatedValue: payload.estimatedValue ?? null,
+        leadType: payload.leadType ?? "NEW",
+        entryOwnerType: payload.entryOwnerType ?? null,
         status: payload.status,
-        assignedToId: payload.assignedToId ?? null,
+        assignedToId: userId ?? payload.assignedToId ?? null,
       },
     });
 
@@ -162,11 +211,14 @@ export const leadsService = {
   },
 
   async getLeadById(id: number) {
-    const lead = await prisma.lead.findUnique({
+    const lead = await db.lead.findUnique({
       where: { id },
       include: {
         assignedTo: {
           select: { id: true, name: true },
+        },
+        companyRecord: {
+          select: { id: true, name: true, industry: true, city: true, state: true },
         },
         opportunities: {
           select: {
@@ -184,7 +236,7 @@ export const leadsService = {
   },
 
   async updateLead(id: number, payload: any, userId?: number | null) {
-    const existing = await prisma.lead.findUnique({
+    const existing = await db.lead.findUnique({
       where: { id },
     });
 
@@ -200,7 +252,20 @@ export const leadsService = {
       }
     };
 
-    assignIfPresent("companyName", payload.companyName);
+    if (typeof payload.companyId !== "undefined") {
+      if (payload.companyId === null) {
+        data.companyId = null;
+      } else {
+        const comp = await prisma.company.findUnique({ where: { id: payload.companyId } });
+        if (!comp) {
+          throw new ApiError(400, "Company not found");
+        }
+        data.companyId = payload.companyId;
+        data.companyName = comp.name;
+      }
+    } else {
+      assignIfPresent("companyName", payload.companyName);
+    }
     assignIfPresent("contactName", payload.contactName);
     assignIfPresent("email", payload.email);
     assignIfPresent("phone", payload.phone);
@@ -211,6 +276,8 @@ export const leadsService = {
     assignIfPresent("requirement", payload.requirement ?? null);
     assignIfPresent("estimatedValue", typeof payload.estimatedValue === "number" ? payload.estimatedValue : null);
     assignIfPresent("assignedToId", typeof payload.assignedToId === "number" ? payload.assignedToId : null);
+    assignIfPresent("leadType", payload.leadType ?? null);
+    assignIfPresent("entryOwnerType", payload.entryOwnerType ?? null);
 
     if (typeof payload.status === "string") {
       data.status = payload.status;
@@ -220,13 +287,29 @@ export const leadsService = {
       data.lostReason = payload.lostReason;
     }
 
-    const updated = await prisma.lead.update({
+    const updated = await db.lead.update({
       where: { id },
       data,
     });
 
     const changedFields: string[] = [];
-    (["companyName", "contactName", "email", "phone", "source", "industry", "city", "state", "requirement", "estimatedValue", "assignedToId", "status", "lostReason"] as const).forEach(
+    ([
+      "companyName",
+      "contactName",
+      "email",
+      "phone",
+      "source",
+      "industry",
+      "city",
+      "state",
+      "requirement",
+      "estimatedValue",
+      "assignedToId",
+      "leadType",
+      "entryOwnerType",
+      "status",
+      "lostReason",
+    ] as const).forEach(
       key => {
         if ((existing as any)[key] !== (updated as any)[key]) {
           changedFields.push(key);
@@ -235,7 +318,7 @@ export const leadsService = {
     );
 
     if (changedFields.length > 0) {
-      await prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           userId: userId ?? null,
           action: "Field Updated",
@@ -249,7 +332,7 @@ export const leadsService = {
     }
 
     if (payload.status && payload.status !== existing.status) {
-      await prisma.auditLog.create({
+      await db.auditLog.create({
         data: {
           userId: userId ?? null,
           action: "Status Changed",
@@ -290,7 +373,7 @@ export const leadsService = {
   },
 
   async convertLeadToOpportunity(id: number, userId?: number | null) {
-    const lead = await prisma.lead.findUnique({
+    const lead = await db.lead.findUnique({
       where: { id },
       include: {
         opportunities: true,
@@ -304,30 +387,55 @@ export const leadsService = {
     const existingOpportunity = lead.opportunities[0];
 
     let opportunity = existingOpportunity;
+    const createdNow = !opportunity;
 
     if (!opportunity) {
-      opportunity = await prisma.opportunity.create({
+      opportunity = await db.opportunity.create({
         data: {
           leadId: lead.id,
           companyName: lead.companyName,
           contactName: lead.contactName,
           assignedToId: lead.assignedToId,
           stage: "Qualification",
+          salesStage: "LEAD_GENERATION",
+          salesOwnerId: lead.entryOwnerType === "SALES" ? lead.assignedToId : null,
+          isrOwnerId: lead.entryOwnerType === "ISR" ? lead.assignedToId : null,
           estimatedValue: lead.estimatedValue,
         } as any,
+      });
+    }
+
+    const existingScmNotification = await db.scmStageHistory.findFirst({
+      where: {
+        opportunityId: opportunity.id,
+        toStage: "PROJECT_NOTIFIED",
+      },
+    });
+
+    if (!existingScmNotification) {
+      await db.scmStageHistory.create({
+        data: {
+          opportunityId: opportunity.id,
+          fromStage: null,
+          toStage: "PROJECT_NOTIFIED",
+          changedById: userId ?? null,
+          notes: createdNow
+            ? "Lead converted to opportunity and shared with SCM panel"
+            : "Existing opportunity shared with SCM panel",
+        },
       });
     }
 
     const shouldUpgradeStatus = lead.status === "New" || lead.status === "Contacted";
 
     const updatedLead = shouldUpgradeStatus
-      ? await prisma.lead.update({
+      ? await db.lead.update({
           where: { id: lead.id },
           data: { status: "Qualified" },
         })
       : lead;
 
-    await prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         userId: userId ?? null,
         action: "Lead Converted",
@@ -343,7 +451,7 @@ export const leadsService = {
   },
 
   async addNote(leadId: number, body: string, userId?: number | null) {
-    const note = await prisma.leadNote.create({
+    const note = await db.leadNote.create({
       data: {
         leadId,
         authorId: userId ?? null,
@@ -351,7 +459,7 @@ export const leadsService = {
       },
     });
 
-    await prisma.auditLog.create({
+    await db.auditLog.create({
       data: {
         userId: userId ?? null,
         action: "Note Added",
@@ -367,7 +475,7 @@ export const leadsService = {
   },
 
   async sendEmail(leadId: number, payload: { to: string; subject: string; body: string }, userId?: number | null) {
-    const email = await prisma.leadEmail.create({
+    const email = await db.leadEmail.create({
       data: {
         leadId,
         to: payload.to,

@@ -14,10 +14,37 @@ async function ensureRole(name) {
   });
 }
 
+/** Aligns user “Department” dropdowns with CRM functional areas: Sales, Presales, SCM, Deployment, Cloud. */
+async function ensureDepartment(name) {
+  const existing = await prisma.department.findFirst({ where: { name } });
+  if (existing) return existing;
+  return prisma.department.create({ data: { name } });
+}
+
 async function main() {
   const superAdminRole = await ensureRole("SUPER_ADMIN");
   const adminRole = await ensureRole("ADMIN");
   const userRole = await ensureRole("USER");
+
+  for (const dept of [
+    "Sales",
+    "Presales",
+    "SCM",
+    "Deployment",
+    "Cloud",
+    "Cyber Security",
+    "Network Security",
+    "ISR",
+    "Accounts",
+    "IT Support",
+    "Software Development",
+    "Legal and Compliance",
+    "Creative Department",
+    "HR Department",
+    "Network Help Desk",
+  ]) {
+    await ensureDepartment(dept);
+  }
 
   const superAdminPwd = await bcrypt.hash("SuperAdmin@123", 10);
   const adminPwd = await bcrypt.hash("Admin@123", 10);
@@ -27,9 +54,9 @@ async function main() {
     where: { code: "cachedigitech-internal" },
     update: {},
     create: {
-      name: "Cachedigitech Internal",
+      name: "Connectplus Internal",
       code: "cachedigitech-internal",
-      modules: ["CRM", "HRMS"],
+      modules: ["CRM"],
     },
   });
 

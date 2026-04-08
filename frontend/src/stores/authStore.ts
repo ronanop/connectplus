@@ -4,7 +4,11 @@ type Role = "SUPER_ADMIN" | "ADMIN" | "USER" | string;
 
 interface AuthUser {
   id: number;
+  name?: string;
+  email?: string;
+  department?: string | null;
   role: Role;
+  organization?: string | null;
 }
 
 interface AuthState {

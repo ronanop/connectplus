@@ -9,6 +9,7 @@ export const listLeads = async (req: AuthenticatedRequest, res: Response): Promi
   const result = await leadsService.listLeads({
     search: parsed.search,
     status: parsed.status,
+    companyId: parsed.companyId,
     page: parsed.page,
     pageSize: parsed.pageSize,
   });
@@ -22,8 +23,9 @@ export const listLeads = async (req: AuthenticatedRequest, res: Response): Promi
 
 export const createLead = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const payload = req.body as any;
+  const userId = req.user?.id ?? null;
 
-  const lead = await leadsService.createLead(payload);
+  const lead = await leadsService.createLead(payload, userId);
 
   res.status(201).json({
     success: true,

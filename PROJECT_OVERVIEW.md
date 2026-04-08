@@ -1,8 +1,8 @@
- # Cachedigitech CRM – Project Overview
+ # Connectplus CRM – Project Overview
 
  ## 1. Application Description
 
- Cachedigitech CRM is a full‑stack sales and presales workspace designed around a B2B sales funnel:
+ Connectplus CRM is a full‑stack sales and presales workspace designed around a B2B sales funnel:
 
  - Capture and qualify **leads**
  - Convert qualified leads into **opportunities**
@@ -375,7 +375,6 @@
  **Feature**
 
  - API Fetcher tool for admins to execute arbitrary HTTP requests and store responses.
- - HRMS employee sync stub for future integration.
 
  **Implementation**
 
@@ -384,7 +383,6 @@
    - API fetch:
      - Controller: [backend/src/modules/integrations/controller.ts](file:///c:/Users/Rishabh/Desktop/connectplus-crm/backend/src/modules/integrations/controller.ts)
      - Service: [backend/src/modules/integrations/apiFetcherService.ts](file:///c:/Users/Rishabh/Desktop/connectplus-crm/backend/src/modules/integrations/apiFetcherService.ts)
-   - HRMS service: [backend/src/modules/integrations/hrmsService.ts](file:///c:/Users/Rishabh/Desktop/connectplus-crm/backend/src/modules/integrations/hrmsService.ts)
  - Frontend:
    - `/api-fetcher` page in `App.tsx` for constructing and running API calls, with history retrieved from `GET /api/integrations/fetch/sessions`.
 

@@ -1,23 +1,4 @@
--- DropForeignKey
-ALTER TABLE "lead_activities" DROP CONSTRAINT "lead_activities_lead_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "lead_emails" DROP CONSTRAINT "lead_emails_created_by_fkey";
-
--- DropForeignKey
-ALTER TABLE "lead_emails" DROP CONSTRAINT "lead_emails_lead_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "lead_notes" DROP CONSTRAINT "lead_notes_author_id_fkey";
-
--- DropForeignKey
-ALTER TABLE "lead_notes" DROP CONSTRAINT "lead_notes_lead_id_fkey";
-
--- AddForeignKey
-ALTER TABLE "lead_notes" ADD CONSTRAINT "lead_notes_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "leads"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "lead_emails" ADD CONSTRAINT "lead_emails_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "leads"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "lead_activities" ADD CONSTRAINT "lead_activities_lead_id_fkey" FOREIGN KEY ("lead_id") REFERENCES "leads"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- This migration was attempting to modify foreign keys for tables that don't exist yet.
+-- The lead_notes, lead_emails, and lead_activities tables are created in a later migration.
+-- Foreign key constraints for these tables are set correctly when the tables are created.
+-- This migration is now empty but kept for migration history consistency.

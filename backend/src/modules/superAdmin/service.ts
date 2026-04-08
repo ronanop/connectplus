@@ -113,18 +113,22 @@ export const superAdminService = {
       },
     });
 
-    const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+    const azureConfigured = Boolean(
+      process.env.AZURE_TENANT_ID &&
+      process.env.AZURE_CLIENT_ID &&
+      process.env.AZURE_CLIENT_SECRET
+    );
 
-    if (smtpConfigured) {
-      const from = process.env.SMTP_FROM || process.env.SMTP_USER || "no-reply@example.com";
+    if (azureConfigured) {
+      const from = process.env.AZURE_FROM_EMAIL || process.env.AZURE_CLIENT_ID || "no-reply@cachedigitech.com";
 
       await mailer.sendMail({
         to: payload.adminEmail,
         from,
-        subject: `Your Cachedigitech ${organization.name} admin access`,
+        subject: `Your Connectplus CRM ${organization.name} admin access`,
         html: [
           `<p>Hi ${payload.adminName},</p>`,
-          `<p>Your organisation <strong>${organization.name}</strong> has been created on Cachedigitech.</p>`,
+          `<p>Your organisation <strong>${organization.name}</strong> has been created on Connectplus CRM.</p>`,
           `<p>You can sign in with:</p>`,
           `<p><strong>URL:</strong> ${process.env.APP_BASE_URL || "http://localhost:5173"}</p>`,
           `<p><strong>Email:</strong> ${payload.adminEmail}<br/><strong>Temporary password:</strong> ${tempPassword}</p>`,
@@ -147,7 +151,7 @@ export const superAdminService = {
         email: adminUser.email,
       },
       temporaryPassword: tempPassword,
-      emailSent: smtpConfigured,
+      emailSent: azureConfigured,
     };
   },
 };

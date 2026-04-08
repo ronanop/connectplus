@@ -1,7 +1,8 @@
 import { Response } from "express";
 import { AuthenticatedRequest } from "../../types/auth";
+import { ApiError } from "../../middleware/errorHandler";
 import { opportunitiesService } from "./service";
-import { listOpportunitiesQuerySchema } from "./validation";
+import { listOpportunitiesQuerySchema, updateOpportunityStageSchema } from "./validation";
 
 export const listOpportunities = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const parsed = listOpportunitiesQuerySchema.safeParse(req.query);
@@ -58,6 +59,22 @@ export const deleteOpportunity = async (req: AuthenticatedRequest, res: Response
   res.json({
     success: true,
     data: null,
+    message: "",
+  });
+};
+
+export const updateOpportunityStage = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.user) {
+    throw new ApiError(401, "Unauthorized");
+  }
+
+  const id = parseInt(req.params.id, 10);
+  const parsed = updateOpportunityStageSchema.parse(req.body);
+  const opportunity = await opportunitiesService.updateOpportunityStage(id, parsed.salesStage, req.user.id, parsed.notes);
+
+  res.json({
+    success: true,
+    data: { opportunity },
     message: "",
   });
 };

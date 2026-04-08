@@ -44,6 +44,7 @@ export const listPresalesProjects = async (req: AuthenticatedRequest, res: Respo
 
   const result = await presalesService.listProjects({
     search: parsed.search,
+    linkedLeadId: parsed.linkedLeadId,
     stage: parsed.stage,
     priority: parsed.priority,
     status: parsed.status,

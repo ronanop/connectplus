@@ -7,10 +7,13 @@ import {
   approvalConfigSchema,
   companyProfileSchema,
   createUserSchema,
+  importMicrosoftDirectorySchema,
   inviteUserSchema,
   masterNameSchema,
+  microsoftDirectoryQuerySchema,
   notificationPreferenceSchema,
   oofSchema,
+  purgeUsersExceptKeeperSchema,
   revenueTargetSchema,
   updateUserSchema,
 } from "./validation";
@@ -24,7 +27,9 @@ import {
   createProduct,
   createSkillTag,
   createUser,
+  deleteUser,
   inviteUser,
+  listRoles,
   listDepartments,
   listDistributors,
   listIndustries,
@@ -35,6 +40,9 @@ import {
   listRevenueTargets,
   listSkillTags,
   listUsers,
+  listDuplicateUserGroups,
+  deduplicateUsers,
+  purgeUsersExceptKeeper,
   setUserOof,
   upsertApprovalConfig,
   upsertCompanyProfile,
@@ -42,13 +50,49 @@ import {
   updateUser,
   getApprovalConfig,
   getCompanyProfile,
+  importMicrosoftOrgUsers,
+  listMicrosoftOrgUsers,
 } from "./controller";
 
 export const settingsRouter = Router();
 
 settingsRouter.use(authenticate);
+settingsRouter.use(requireRoles(["ADMIN", "SUPER_ADMIN"]));
 
+settingsRouter.get("/roles", asyncHandler(listRoles));
+settingsRouter.get(
+  "/directory/microsoft-users",
+  requireRoles(["ADMIN", "SUPER_ADMIN"]),
+  validateRequest(microsoftDirectoryQuerySchema, "query"),
+  asyncHandler(listMicrosoftOrgUsers),
+);
+settingsRouter.post(
+  "/directory/microsoft-users/import",
+  requireRoles(["ADMIN", "SUPER_ADMIN"]),
+  validateRequest(importMicrosoftDirectorySchema),
+  asyncHandler(importMicrosoftOrgUsers),
+);
 settingsRouter.get("/users", asyncHandler(listUsers));
+settingsRouter.get(
+  "/users/duplicates",
+  requireRoles(["ADMIN", "SUPER_ADMIN"]),
+  asyncHandler(listDuplicateUserGroups),
+);
+settingsRouter.post(
+  "/users/deduplicate",
+  requireRoles(["ADMIN", "SUPER_ADMIN"]),
+  asyncHandler(deduplicateUsers),
+);
+settingsRouter.post(
+  "/users/purge-except-keeper",
+  validateRequest(purgeUsersExceptKeeperSchema),
+  asyncHandler(purgeUsersExceptKeeper),
+);
+settingsRouter.delete(
+  "/users/:id",
+  requireRoles(["ADMIN", "SUPER_ADMIN"]),
+  asyncHandler(deleteUser),
+);
 settingsRouter.post("/users", validateRequest(createUserSchema), asyncHandler(createUser));
 settingsRouter.post(
   "/users/invite",

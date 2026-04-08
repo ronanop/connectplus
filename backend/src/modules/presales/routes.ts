@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { authenticate } from "../../middleware/auth";
+import { requireDepartmentAccess } from "../../middleware/departmentAccess";
 import { validateRequest } from "../../middleware/validateRequest";
 import {
   createPresalesProject,
@@ -24,7 +25,9 @@ import {
   listProposalBoard,
 } from "./controller";
 import {
+  advancePresalesStageSchema,
   createPresalesProjectSchema,
+  upsertRequirementDocSchema,
   updatePresalesProjectSchema,
   upsertBoqSchema,
   upsertPocSchema,
@@ -36,14 +39,15 @@ import {
 export const presalesRouter = Router();
 
 presalesRouter.use(authenticate);
+presalesRouter.use(requireDepartmentAccess("presales"));
 
 presalesRouter.get("/projects", asyncHandler(listPresalesProjects));
 presalesRouter.get("/projects/summary", asyncHandler(getPresalesSummary));
 presalesRouter.get("/projects/:id", asyncHandler(getPresalesProject));
 presalesRouter.get("/projects/:id/stages", asyncHandler(getPresalesStages));
-presalesRouter.post("/projects/:id/stages/advance", asyncHandler(advancePresalesStage));
+presalesRouter.post("/projects/:id/stages/advance", validateRequest(advancePresalesStageSchema), asyncHandler(advancePresalesStage));
 presalesRouter.get("/projects/:id/requirements", asyncHandler(getRequirementDoc));
-presalesRouter.put("/projects/:id/requirements", asyncHandler(upsertRequirementDoc));
+presalesRouter.put("/projects/:id/requirements", validateRequest(upsertRequirementDocSchema), asyncHandler(upsertRequirementDoc));
 presalesRouter.put(
   "/projects/:id/solution",
   validateRequest(upsertSolutionDesignSchema),
