@@ -28,3 +28,7 @@ frontend-mobile/node_modules/
 frontend/dist/
 backend/dist/
 frontend-mobile/dist/
+
+# Framework / tooling artifacts
+frontend/.next/
+*.tsbuildinfo
