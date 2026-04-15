@@ -1,5 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import * as XLSX from "xlsx";
+import { toast } from "react-toastify";
+import { exchangeMicrosoftAuthCodeForAccessToken } from "@shared/microsoftSpaTokenExchange";
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -7,6 +10,24 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, PieChart, Pi
 import { AppShell } from "./components/layout/AppShell";
 import { api } from "./lib/api";
 import { useAuthStore } from "./stores/authStore";
+import { DepartmentManagementPage, HrHomePage, HrSectionPlaceholderPage, HrUserProfilePage } from "./pages/hr";
+import { MyTasksLayout } from "./pages/MyTasks";
+import HierarchyTasksPage from "./pages/hierarchy-tasks/HierarchyTasksPage";
+import PortfolioProjectsPage from "./pages/projects/PortfolioProjectsPage";
+import {
+  ComplaintsPlaceholderPage,
+  MeetingRoomsPage,
+  PayrollConveyancePage,
+  PayrollPage,
+  PayrollReimbursementPage,
+} from "./pages/peopleWorkplacePlaceholders";
+import SkillsPage from "./pages/skills/SkillsPage";
+import { LeavesPage } from "./pages/LeavesPage";
+import ProfilePage from "./pages/profile/ProfilePage";
+import AttendancePage from "./pages/attendance/AttendancePage";
+import TeamAttendancePage from "./pages/attendance/TeamAttendancePage";
+import AttendanceConfigPage from "./pages/settings/AttendanceConfigPage";
+import { InboxPage } from "./pages/InboxPage";
 
 type SegmentItem = {
   name: string;
@@ -518,6 +539,22 @@ type SuperAdminOrganizationDetail = {
     department: string | null;
   }[];
 };
+
+function exportSuperAdminTenantUsersExcel(organization: SuperAdminOrganizationDetail) {
+  const data = organization.users.map(user => ({
+    Name: user.name,
+    Email: user.email,
+    Role: user.role,
+    Status: user.isActive ? "Active" : "Inactive",
+    Department: user.department ?? "",
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Users");
+  const stamp = new Date().toISOString().slice(0, 10);
+  const safeCode = organization.code.replace(/[^\w-]+/g, "_").slice(0, 80) || "tenant";
+  XLSX.writeFile(wb, `users-${safeCode}-${stamp}.xlsx`);
+}
 
 type PresalesSummary = {
   activeCount: number;
@@ -8880,9 +8917,27 @@ function SuperAdminPage() {
                 </p>
               </div>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                  Admin and user roster
-                </p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Admin and user roster
+                  </p>
+                  {activeOrgDetail.users.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          exportSuperAdminTenantUsersExcel(activeOrgDetail);
+                          toast.success("Excel download started");
+                        } catch {
+                          toast.error("Excel export failed");
+                        }
+                      }}
+                      className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-700 transition hover:border-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]"
+                    >
+                      Export Excel
+                    </button>
+                  ) : null}
+                </div>
                 {activeOrgDetail.users.length === 0 ? (
                   <p className="mt-2 text-[11px] text-neutral-500">
                     No workspace users yet. Once the admin provisions users, they will appear here instantly.
@@ -8962,6 +9017,58 @@ function normalizeClientTags(tags: string[]): string[] {
 function userHasPresetTag(tags: string[] | undefined, preset: string): boolean {
   const pl = preset.toLowerCase();
   return (tags ?? []).some(t => t.toLowerCase() === pl);
+}
+
+type SettingsUserExportRow = {
+  id: number;
+  name: string;
+  email: string;
+  department?: string | null;
+  isActive: boolean;
+  role?: { id: number; name: string } | null;
+  reportsTo?: { id: number; name: string; email: string } | null;
+  tags?: string[];
+};
+
+function exportWorkspaceUsersToExcel(
+  sortedUsers: SettingsUserExportRow[],
+  departments: Array<{ id: number; name: string }>,
+) {
+  const userRows = sortedUsers.map((u, i) => {
+    const tagsNormalized = normalizeClientTags(u.tags ?? []);
+    return {
+      "#": i + 1,
+      "User ID": u.id,
+      Name: u.name,
+      Email: u.email,
+      Role: u.role?.name ?? "",
+      Department: u.department ?? "",
+      "Reports to": u.reportsTo ? `${u.reportsTo.name} (${u.reportsTo.email})` : "",
+      Tags: tagsNormalized.join(", "),
+      Active: u.isActive ? "Yes" : "No",
+    };
+  });
+
+  const tagSet = new Set<string>();
+  for (const u of sortedUsers) {
+    for (const t of normalizeClientTags(u.tags ?? [])) {
+      tagSet.add(t);
+    }
+  }
+  const allTagRows = [...tagSet]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    .map(tag => ({ Tag: tag }));
+
+  const departmentRows = [...departments]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+    .map(d => ({ "Department ID": d.id, "Department name": d.name }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(userRows), "Users");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(departmentRows), "Departments");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(allTagRows), "All tags");
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `workspace-users-${stamp}.xlsx`);
 }
 
 function normalizeEmailKeyClient(email: string): string {
@@ -9423,6 +9530,21 @@ function SettingsUsersPage() {
               <span className="rounded-full bg-[var(--bg-elevated)] px-3 py-1 text-[11px] font-medium text-[var(--text-primary)]">
                 {users.length} users
               </span>
+              <button
+                type="button"
+                disabled={usersLoading || users.length === 0}
+                onClick={() => {
+                  try {
+                    exportWorkspaceUsersToExcel(sortedUsers, departments);
+                    toast.success("Excel download started");
+                  } catch {
+                    toast.error("Excel export failed");
+                  }
+                }}
+                className="rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-1.5 text-[11px] font-semibold text-[var(--text-primary)] transition hover:border-[var(--accent-primary)]/50 disabled:opacity-50"
+              >
+                Export Excel
+              </button>
               <button
                 type="button"
                 disabled={selectedUserIds.size === 0 || deleteSelectedUsersMutation.isLoading}
@@ -10644,6 +10766,7 @@ function DeploymentOverviewPage() {
 
 function DeploymentDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const deploymentId = id ? parseInt(id, 10) : NaN;
   const [selectedStage, setSelectedStage] = useState<DeploymentStage>("KICKOFF_MEETING");
@@ -11273,494 +11396,6 @@ function CloudDetailPage() {
   );
 }
 
-type InboxListMessage = {
-  id: string;
-  subject?: string;
-  sender?: { emailAddress?: { name?: string; address?: string } };
-  toRecipients?: Array<{ emailAddress?: { name?: string; address?: string } }>;
-  receivedDateTime?: string;
-  isRead?: boolean;
-  hasAttachments?: boolean;
-  bodyPreview?: string;
-  importance?: string;
-};
-
-const INBOX_DELEGATION_MAILBOX_OPTIONS: { value: string; label: string }[] = [
-  { value: CONNECTPLUS_KEEPER_EMAIL, label: "Connectplus" },
-];
-
-function InboxPage() {
-  const user = useAuthStore(s => s.user);
-  const { data: userDetails } = useQuery({
-    queryKey: ["user-details"],
-    enabled: !!user && (!user.name || !user.email),
-    queryFn: async () => {
-      const response = await api.get("/api/auth/me");
-      return response.data?.data?.user;
-    },
-  });
-
-  const displayUser = userDetails || user;
-  const userEmail = displayUser?.email;
-  const canDelegateInbox =
-    !!userEmail && userEmail.trim().toLowerCase() === CONNECTPLUS_KEEPER_EMAIL.toLowerCase();
-
-  const [delegateMailbox, setDelegateMailbox] = useState<string>(CONNECTPLUS_KEEPER_EMAIL);
-  const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const pageSize = 20;
-
-  const activeMailbox = canDelegateInbox ? delegateMailbox : userEmail ?? "";
-
-  useEffect(() => {
-    setPage(1);
-    setSelectedEmail(null);
-  }, [canDelegateInbox]);
-
-  const { data: inboxData, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["inbox", page, userEmail, canDelegateInbox ? delegateMailbox : null],
-    enabled: !!userEmail,
-    queryFn: async () => {
-      const params: Record<string, string | number> = {
-        top: pageSize,
-        skip: (page - 1) * pageSize,
-      };
-      if (canDelegateInbox) {
-        params.mailbox = delegateMailbox;
-      }
-      const response = await api.get("/api/inbox", { params });
-      const raw = response.data?.data;
-      if (!raw || typeof raw !== "object") {
-        return { value: [] as InboxListMessage[], "@odata.count": 0 };
-      }
-      const value = Array.isArray((raw as { value?: unknown }).value)
-        ? (raw as { value: InboxListMessage[] }).value
-        : [];
-      const count = (raw as { "@odata.count"?: number })["@odata.count"];
-      return {
-        value,
-        "@odata.count": typeof count === "number" ? count : value.length,
-      };
-    },
-  });
-
-  const queryClient = useQueryClient();
-
-  const emailDetailParams = useMemo(
-    () => (canDelegateInbox ? { mailbox: delegateMailbox } : undefined),
-    [canDelegateInbox, delegateMailbox],
-  );
-
-  const { data: emailDetail, isLoading: emailLoading, isError: emailDetailError, error: emailDetailQueryError } = useQuery({
-    queryKey: ["email-detail", selectedEmail, canDelegateInbox ? delegateMailbox : null],
-    enabled: !!selectedEmail,
-    queryFn: async () => {
-      const response = await api.get(`/api/inbox/${encodeURIComponent(selectedEmail!)}`, {
-        params: emailDetailParams,
-      });
-      return response.data?.data?.email as {
-        id: string;
-        subject: string;
-        sender: { emailAddress: { name: string; address: string } };
-        toRecipients: Array<{ emailAddress: { name: string; address: string } }>;
-        receivedDateTime: string;
-        isRead: boolean;
-        hasAttachments: boolean;
-        body: { content: string; contentType: string };
-        importance: string;
-      };
-    },
-  });
-
-  const markAsReadMutation = useMutation({
-    mutationFn: async (messageId: string) => {
-      await api.patch(`/api/inbox/${encodeURIComponent(messageId)}/read`, undefined, {
-        params: canDelegateInbox ? { mailbox: delegateMailbox } : undefined,
-      });
-    },
-    onSuccess: (_, messageId) => {
-      refetch();
-      if (selectedEmail === messageId) {
-        queryClient.invalidateQueries({ queryKey: ["email-detail", messageId] });
-      }
-    },
-  });
-
-  const handleEmailClick = (messageId: string, isRead: boolean) => {
-    setSelectedEmail(messageId);
-    if (!isRead) {
-      markAsReadMutation.mutate(messageId);
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    } else if (diffDays === 1) {
-      return "Yesterday";
-    } else if (diffDays < 7) {
-      return date.toLocaleDateString([], { weekday: "short" });
-    } else {
-      return date.toLocaleDateString([], { month: "short", day: "numeric" });
-    }
-  };
-
-  if (!userEmail) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-neutral-500">Loading user information...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-xs uppercase tracking-[0.25em] text-neutral-500">Communication</p>
-        <div className="mt-2 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">Inbox</h1>
-          {canDelegateInbox ? (
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-xs font-medium uppercase tracking-wide text-neutral-500">Mailbox</span>
-              <select
-                value={delegateMailbox}
-                onChange={e => {
-                  setDelegateMailbox(e.target.value);
-                  setSelectedEmail(null);
-                  setPage(1);
-                }}
-                className="min-w-[220px] rounded-lg border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-[var(--text-primary)] shadow-sm"
-              >
-                {INBOX_DELEGATION_MAILBOX_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label} ({opt.value})
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-        </div>
-        <p className="mt-1 text-sm text-neutral-500">
-          Viewing emails for {activeMailbox}
-        </p>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[400px_1fr]">
-        {/* Email List */}
-        <div className="rounded-2xl border border-[var(--border)]/80 bg-[var(--bg-surface)]/95 shadow-sm">
-          <div className="border-b border-[var(--border)]/50 p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">Messages</h2>
-              {inboxData && !isError && (
-                <span className="text-xs text-neutral-500">
-                  {inboxData["@odata.count"]} {inboxData["@odata.count"] === 1 ? "email" : "emails"}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
-            {isLoading ? (
-              <div className="p-8 text-center text-sm text-neutral-500">Loading emails...</div>
-            ) : isError ? (
-              <div className="space-y-3 p-8 text-center text-sm">
-                <p className="font-medium text-red-600">Couldn&apos;t load this mailbox</p>
-                <p className="text-xs text-neutral-600">
-                  {axios.isAxiosError(error)
-                    ? String(
-                        (error.response?.data as { message?: string } | undefined)?.message ||
-                          error.message ||
-                          "",
-                      )
-                    : error instanceof Error
-                      ? error.message
-                      : "Check Microsoft Graph permissions (Mail.Read for that user) and try again."}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 text-xs font-medium text-[var(--text-primary)]"
-                >
-                  Try again
-                </button>
-              </div>
-            ) : !inboxData?.value?.length ? (
-              <div className="p-8 text-center text-sm text-neutral-500">No emails found</div>
-            ) : (
-              <div className="divide-y divide-[var(--border)]/50">
-                {inboxData.value.filter(e => e.id).map(email => (
-                  <button
-                    key={email.id}
-                    onClick={() => handleEmailClick(email.id, Boolean(email.isRead))}
-                    className={`w-full p-4 text-left transition ${
-                      selectedEmail === email.id
-                        ? "bg-[var(--bg-elevated)]/60"
-                        : "hover:bg-[var(--bg-elevated)]/40"
-                    } ${email.isRead === false ? "bg-[var(--bg-elevated)]/30" : ""}`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-medium text-[var(--text-primary)]">
-                            {email.sender?.emailAddress?.name ||
-                              email.sender?.emailAddress?.address ||
-                              "Unknown sender"}
-                          </p>
-                          {email.isRead === false && (
-                            <span className="h-2 w-2 rounded-full bg-[var(--accent-primary)]" />
-                          )}
-                          {email.importance === "high" && (
-                            <span className="text-xs text-red-500">!</span>
-                          )}
-                        </div>
-                        <p className="mt-1 truncate text-sm text-[var(--text-primary)]">
-                          {email.subject || "(No subject)"}
-                        </p>
-                        <p className="mt-1 line-clamp-2 text-xs text-neutral-500">
-                          {email.bodyPreview ?? ""}
-                        </p>
-                        <div className="mt-2 flex items-center gap-3 text-xs text-neutral-400">
-                          <span>
-                            {email.receivedDateTime ? formatDate(email.receivedDateTime) : "—"}
-                          </span>
-                          {email.hasAttachments && (
-                            <span className="flex items-center gap-1">
-                              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                              </svg>
-                              Attachment
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {inboxData && !isError && inboxData["@odata.count"] > pageSize && (
-            <div className="border-t border-[var(--border)]/50 p-4">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="rounded-lg px-3 py-1.5 text-xs text-neutral-600 transition hover:bg-[var(--bg-elevated)] disabled:opacity-50"
-                >
-                  Previous
-                </button>
-                <span className="text-xs text-neutral-500">
-                  Page {page} of {Math.ceil(inboxData["@odata.count"] / pageSize)}
-                </span>
-                <button
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={page >= Math.ceil(inboxData["@odata.count"] / pageSize)}
-                  className="rounded-lg px-3 py-1.5 text-xs text-neutral-600 transition hover:bg-[var(--bg-elevated)] disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Email Detail */}
-        <div className="rounded-2xl border border-[var(--border)]/80 bg-[var(--bg-surface)]/95 shadow-sm">
-          {selectedEmail ? (
-            emailLoading ? (
-              <div className="p-8 text-center text-sm text-neutral-500">Loading email...</div>
-            ) : emailDetailError ? (
-              <div className="space-y-3 p-8 text-center text-sm">
-                <p className="font-medium text-red-600">Couldn&apos;t load this message</p>
-                <p className="text-xs text-neutral-600">
-                  {axios.isAxiosError(emailDetailQueryError)
-                    ? String(
-                        (emailDetailQueryError.response?.data as { message?: string } | undefined)
-                          ?.message || emailDetailQueryError.message || "",
-                      )
-                    : emailDetailQueryError instanceof Error
-                      ? emailDetailQueryError.message
-                      : ""}
-                </p>
-              </div>
-            ) : emailDetail ? (
-              <div className="flex h-full flex-col">
-                <div className="border-b border-[var(--border)]/50 p-6">
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-                    {emailDetail.subject || "(No subject)"}
-                  </h2>
-                  <div className="mt-3 space-y-2 text-sm">
-                    <div>
-                      <span className="text-neutral-500">From: </span>
-                      <span className="text-[var(--text-primary)]">
-                        {emailDetail.sender?.emailAddress?.name ||
-                          emailDetail.sender?.emailAddress?.address ||
-                          "—"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-neutral-500">To: </span>
-                      <span className="text-[var(--text-primary)]">
-                        {(emailDetail.toRecipients ?? [])
-                          .map(r => r.emailAddress?.address)
-                          .filter(Boolean)
-                          .join(", ") || "—"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-neutral-500">Date: </span>
-                      <span className="text-[var(--text-primary)]">
-                        {new Date(emailDetail.receivedDateTime).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6">
-                  <div
-                    className="prose prose-sm max-w-none text-[var(--text-primary)]"
-                    dangerouslySetInnerHTML={{
-                      __html: emailDetail.body?.content || "",
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="p-8 text-center text-sm text-neutral-500">Failed to load email</div>
-            )
-          ) : (
-            <div className="flex h-full items-center justify-center p-8">
-              <p className="text-sm text-neutral-500">Select an email to view</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function UserProfilePage() {
-  const user = useAuthStore(s => s.user);
-  const { data: userDetails, isLoading } = useQuery({
-    queryKey: ["user-profile"],
-    enabled: !!user,
-    queryFn: async () => {
-      const response = await api.get("/api/auth/me");
-      return response.data?.data?.user;
-    },
-  });
-
-  const displayUser = userDetails || user;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-neutral-500">Loading profile...</p>
-      </div>
-    );
-  }
-
-  if (!displayUser) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <p className="text-sm text-neutral-500">User not found</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-xs uppercase tracking-[0.25em] text-neutral-500">Profile</p>
-        <h1 className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">My Profile</h1>
-        <p className="mt-1 text-sm text-neutral-500">View and manage your account information.</p>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-[var(--border)]/80 bg-[var(--bg-surface)]/95 p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-[var(--text-primary)]">Personal Information</h2>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--accent-primary)]/20 to-[var(--accent-gold)]/20 text-[var(--accent-primary)]">
-                <span className="text-2xl font-semibold">
-                  {displayUser.name?.charAt(0).toUpperCase() || "U"}
-                </span>
-              </div>
-              <div>
-                <p className="text-lg font-semibold text-[var(--text-primary)]">
-                  {displayUser.name || "User"}
-                </p>
-                <p className="text-sm text-neutral-500">{displayUser.email || "No email"}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3 border-t border-[var(--border)]/50 pt-4">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Role</p>
-                <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
-                  {displayUser.role || "N/A"}
-                </p>
-              </div>
-
-              {displayUser.department && (
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Department</p>
-                  <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
-                    {displayUser.department}
-                  </p>
-                </div>
-              )}
-
-              {displayUser.organization && (
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Organization</p>
-                  <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
-                    {displayUser.organization}
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">User ID</p>
-                <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
-                  {displayUser.id || "N/A"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--border)]/80 bg-[var(--bg-surface)]/95 p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-[var(--text-primary)]">Account Details</h2>
-          <div className="space-y-4">
-            <div className="rounded-lg bg-[var(--bg-elevated)]/60 p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Email Address</p>
-              <p className="mt-2 text-sm text-[var(--text-primary)]">
-                {displayUser.email || "Not provided"}
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-[var(--bg-elevated)]/60 p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Account Status</p>
-              <p className="mt-2 text-sm text-[var(--text-primary)]">Active</p>
-            </div>
-
-            <div className="rounded-lg bg-[var(--bg-elevated)]/60 p-4">
-              <p className="text-xs font-medium uppercase tracking-[0.1em] text-neutral-400">Permissions</p>
-              <p className="mt-2 text-sm text-[var(--text-primary)]">
-                Based on role: <span className="font-medium">{displayUser.role || "N/A"}</span>
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function WorkspacePage() {
   return (
     <div className="space-y-4">
@@ -11806,7 +11441,8 @@ function LoginPage() {
   const resolveMicrosoftRedirectUri = () => {
     const configuredBaseUrl = import.meta.env.VITE_PUBLIC_APP_URL;
     if (configuredBaseUrl && configuredBaseUrl.trim()) {
-      return `${configuredBaseUrl.replace(/\/+$/, "")}/login`;
+      const base = configuredBaseUrl.trim().replace(/\/+$/, "");
+      return base.endsWith("/login") ? base : `${base}/login`;
     }
     return `${window.location.origin}/login`;
   };
@@ -11824,10 +11460,24 @@ function LoginPage() {
         return;
       }
 
-      const response = await api.post("/api/auth/login/microsoft/callback", {
+      const tenantId = import.meta.env.VITE_AZURE_TENANT_ID;
+      const clientId = import.meta.env.VITE_AZURE_CLIENT_ID;
+      if (!tenantId || !clientId) {
+        setError("Microsoft SSO is not configured.");
+        setLoading(false);
+        return;
+      }
+
+      const accessToken = await exchangeMicrosoftAuthCodeForAccessToken({
+        tenantId,
+        clientId,
         code,
         codeVerifier,
         redirectUri,
+      });
+
+      const response = await api.post("/api/auth/login/microsoft/callback", {
+        accessToken,
       });
       
       // Clear code verifier from session storage
@@ -11864,6 +11514,8 @@ function LoginPage() {
         } else {
           setError("Unable to sign in with Microsoft. Please try again.");
         }
+      } else if (error instanceof Error && error.message) {
+        setError(error.message);
       } else {
         setError("Unexpected error while signing in.");
       }
@@ -12416,6 +12068,18 @@ export default function App() {
         }
       />
       <Route
+        path="/tasks"
+        element={
+          <AppShell>
+            <MyTasksLayout />
+          </AppShell>
+        }
+      >
+        <Route index element={<Navigate to="hierarchy" replace />} />
+        <Route path="hierarchy" element={<HierarchyTasksPage />} />
+        <Route path="hierarchy/:taskId" element={<HierarchyTasksPage />} />
+      </Route>
+      <Route
         path="/inbox"
         element={
           <AppShell>
@@ -12427,7 +12091,125 @@ export default function App() {
         path="/profile"
         element={
           <AppShell>
-            <UserProfilePage />
+            <ProfilePage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/attendance"
+        element={
+          <AppShell>
+            <AttendancePage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/attendance/team"
+        element={
+          <AppShell>
+            <TeamAttendancePage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/projects/portfolio"
+        element={
+          <AppShell>
+            <PortfolioProjectsPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/projects/portfolio/:projectId"
+        element={
+          <AppShell>
+            <PortfolioProjectsPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/settings/attendance"
+        element={
+          <AppShell>
+            <AttendanceConfigPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/meeting-rooms"
+        element={
+          <AppShell>
+            <MeetingRoomsPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/skills"
+        element={
+          <AppShell>
+            <SkillsPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/payroll"
+        element={
+          <AppShell>
+            <PayrollPage />
+          </AppShell>
+        }
+      >
+        <Route index element={<Navigate to="conveyance" replace />} />
+        <Route path="conveyance" element={<PayrollConveyancePage />} />
+        <Route path="reimbursement" element={<PayrollReimbursementPage />} />
+      </Route>
+      <Route path="/hr/payroll" element={<Navigate to="/payroll" replace />} />
+      <Route
+        path="/leaves"
+        element={
+          <AppShell>
+            <LeavesPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/complaints"
+        element={
+          <AppShell>
+            <ComplaintsPlaceholderPage />
+          </AppShell>
+        }
+      />
+      <Route path="/hr/leave" element={<Navigate to="/leaves" replace />} />
+      <Route
+        path="/hr/departments"
+        element={
+          <AppShell>
+            <DepartmentManagementPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/hr/users/:userId"
+        element={
+          <AppShell>
+            <HrUserProfilePage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/hr/:section"
+        element={
+          <AppShell>
+            <HrSectionPlaceholderPage />
+          </AppShell>
+        }
+      />
+      <Route
+        path="/hr"
+        element={
+          <AppShell>
+            <HrHomePage />
           </AppShell>
         }
       />

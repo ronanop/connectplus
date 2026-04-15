@@ -1,35 +1,91 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import type { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard,
-  ClipboardList,
-  UserPlus,
+  AlertCircle,
+  Award,
+  Banknote,
+  Briefcase,
   Building2,
-  TrendingUp,
-  FileSearch,
-  Truck,
-  Rocket,
+  CalendarDays,
+  ClipboardList,
+  Clock,
   Cloud,
   Code,
-  ShieldCheck,
-  Users,
-  LogOut,
-  User,
+  ChevronRight,
+  FileSearch,
+  FolderKanban,
   Inbox,
+  LayoutDashboard,
+  LayoutGrid,
+  LogOut,
+  Rocket,
+  ShieldCheck,
+  TrendingUp,
+  Truck,
+  User,
+  UserCircle,
+  UserPlus,
+  Users,
 } from "lucide-react";
 import { api } from "../../lib/api";
+import { HR_MODULES_STATIC } from "../../lib/hrModules";
 import { useAuthStore } from "../../stores/authStore";
 import { canSeeNavGroup, normalizeDepartmentName } from "../../lib/accessControl";
+import {
+  PEOPLE_WORKPLACE_LINKS,
+  PEOPLE_WORKPLACE_SECTION_TITLE,
+  WORKSPACE_TASK_LINKS,
+  navLinkIsActive,
+  type WorkspaceIconKey,
+} from "@shared/workspaceNav";
 
-const items = [
+type NavLinkItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  /** If set, only these roles see the link (e.g. task allocation). */
+  roles?: string[];
+  showPresalesBadge?: boolean;
+};
+
+const WORKSPACE_ICON_MAP: Record<WorkspaceIconKey, LucideIcon> = {
+  briefcase: Briefcase,
+  folderKanban: FolderKanban,
+  clipboardList: ClipboardList,
+  layoutGrid: LayoutGrid,
+  userCircle: UserCircle,
+  clock: Clock,
+  building2: Building2,
+  award: Award,
+  banknote: Banknote,
+  calendarDays: CalendarDays,
+  alertCircle: AlertCircle,
+};
+
+function peopleWorkplaceLinks(): NavLinkItem[] {
+  return [...WORKSPACE_TASK_LINKS, ...PEOPLE_WORKPLACE_LINKS].map(link => ({
+    to: link.path,
+    label: link.label,
+    icon: WORKSPACE_ICON_MAP[link.iconKey],
+    roles: link.roles ? [...link.roles] : undefined,
+  }));
+}
+
+const items: Array<{ group: string; links: NavLinkItem[] }> = [
   {
     group: "Overview",
     links: [
       { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { to: "/tasks", label: "My Tasks", icon: ClipboardList },
+      { to: "/tasks/hierarchy", label: "Task Board", icon: LayoutGrid },
+      { to: "/projects/portfolio", label: "Portfolio projects", icon: FolderKanban },
       { to: "/inbox", label: "Inbox", icon: Inbox },
     ],
+  },
+  {
+    group: PEOPLE_WORKPLACE_SECTION_TITLE,
+    links: peopleWorkplaceLinks(),
   },
   {
     group: "Sales",
@@ -59,8 +115,101 @@ const items = [
     group: "Tools",
     links: [{ to: "/api-fetcher", label: "API Fetcher", icon: Code }],
   },
-  { group: "Admin", links: [{ to: "/settings/users", label: "Users", icon: Users }] },
+  {
+    group: "Admin",
+    links: [
+      { to: "/settings/users", label: "Users", icon: Users },
+      {
+        to: "/attendance/team",
+        label: "Team attendance",
+        icon: Users,
+        roles: ["ADMIN", "SUPER_ADMIN", "MANAGEMENT"],
+      },
+      { to: "/settings/attendance", label: "Attendance settings", icon: Clock, roles: ["ADMIN", "SUPER_ADMIN"] },
+    ],
+  },
 ];
+
+type HrModuleRow = { id: string; label: string; path: string };
+
+function HrNavDropdown() {
+  const location = useLocation();
+  const { data } = useQuery({
+    queryKey: ["hr-modules"],
+    queryFn: async () => {
+      const response = await api.get("/api/hr/modules");
+      return response.data?.data?.modules as HrModuleRow[] | undefined;
+    },
+  });
+  const modules: HrModuleRow[] = data?.length ? data : [...HR_MODULES_STATIC];
+
+  const childActive = modules.some(
+    m => location.pathname === m.path || location.pathname.startsWith(`${m.path}/`),
+  );
+  const homeActive = location.pathname === "/hr" || location.pathname === "/hr/";
+  const [open, setOpen] = React.useState(() => childActive || homeActive);
+
+  React.useEffect(() => {
+    if (childActive || homeActive) {
+      setOpen(true);
+    }
+  }, [childActive, homeActive]);
+
+  const parentActive = homeActive || childActive;
+
+  return (
+    <div>
+      <div className="px-3 pb-1 text-[11px] font-medium tracking-[0.12em] text-neutral-500">HR</div>
+      <div className="space-y-1">
+        <div
+          className={`flex items-stretch gap-0.5 rounded-xl ${
+            parentActive ? "bg-gradient-to-r from-[var(--bg-elevated)] to-[var(--bg-surface)] shadow-sm" : ""
+          }`}
+        >
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-label={open ? "Collapse HR modules" : "Expand HR modules"}
+            onClick={() => setOpen(o => !o)}
+            className="flex shrink-0 items-center justify-center rounded-l-xl px-2 text-neutral-500 transition hover:bg-[var(--bg-elevated)]/80 hover:text-[var(--text-primary)]"
+          >
+            <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
+          </button>
+          <Link
+            to="/hr"
+            className={`flex min-w-0 flex-1 items-center gap-2 rounded-r-xl py-2 pr-3 text-sm transition ${
+              parentActive ? "text-[var(--accent-primary)]" : "text-neutral-600 hover:bg-[var(--bg-elevated)]/80"
+            }`}
+          >
+            <LayoutGrid className="h-4 w-4 shrink-0" />
+            <span>HR home</span>
+          </Link>
+        </div>
+        {open && (
+          <div className="ml-2 space-y-0.5 border-l border-neutral-200/90 pl-2 dark:border-neutral-700/90">
+            {modules.map(m => {
+              const subActive =
+                location.pathname === m.path || location.pathname.startsWith(`${m.path}/`);
+              return (
+                <Link
+                  key={m.id}
+                  to={m.path}
+                  className={`block rounded-lg px-3 py-1.5 text-[13px] transition ${
+                    subActive
+                      ? "bg-[var(--bg-elevated)] font-medium text-[var(--accent-primary)]"
+                      : "text-neutral-600 hover:bg-[var(--bg-elevated)]/80"
+                  }`}
+                >
+                  {m.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function Sidebar() {
   const location = useLocation();
@@ -99,7 +248,8 @@ export function Sidebar() {
     ({
       role: user.role,
       department: displayUser?.department ?? user.department ?? null,
-    } as { role: string; department?: string | null });
+      tags: (displayUser as { tags?: string[] }).tags ?? user.tags,
+    } as { role: string; department?: string | null; tags?: string[] });
 
   const handleLogout = async () => {
     try {
@@ -143,7 +293,10 @@ export function Sidebar() {
             ? [{ group: "Super admin", links: [{ to: "/super-admin", label: "Admin Panel", icon: ShieldCheck }] }]
             : []),
         ].map(group => {
-          const links = group.links;
+          const links = group.links.filter(link => {
+            if (!link.roles?.length) return true;
+            return role != null && link.roles.includes(role);
+          });
 
           if (links.length === 0) {
             return null;
@@ -154,7 +307,7 @@ export function Sidebar() {
               <div className="px-3 pb-1 text-[11px] font-medium tracking-[0.12em] text-neutral-500">{group.group}</div>
               <div className="space-y-1">
                 {links.map(link => {
-                  const active = location.pathname.startsWith(link.to);
+                  const active = navLinkIsActive(link.to, location.pathname);
                   const showPresalesBadge = link.label === "Presales" && canSeePresalesBadge && activePresalesCount != null;
                   return (
                     <Link
@@ -182,6 +335,7 @@ export function Sidebar() {
             </div>
           );
         })}
+        {navUser && canSeeNavGroup("HR", navUser) && <HrNavDropdown />}
       </nav>
       {user && (
         <div className="mt-auto border-t border-[var(--border)] bg-[var(--bg-surface)]/95 p-4">

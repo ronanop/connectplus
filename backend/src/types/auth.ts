@@ -3,8 +3,10 @@ import { Request } from "express";
 export interface AuthUser {
   id: number;
   role: string;
-  /** Set at login (JWT). May be stale until next login if an admin changes department. */
+  /** Set at login (JWT). Hydrated from DB on some routes (e.g. /api/settings). */
   department?: string | null;
+  /** Hydrated from DB (e.g. after `hydrateAuthUserFromDb`). */
+  organizationId?: number | null;
 }
 
 export interface AuthenticatedRequest extends Request {

@@ -3,6 +3,11 @@
  * ADMIN may access /settings in addition to their department scope.
  */
 
+import { canAccessHr } from "./hrAccess";
+import { PEOPLE_WORKPLACE_SECTION_TITLE, isUniversalWorkspacePath } from "@shared/workspaceNav";
+
+export { isUniversalWorkspacePath };
+
 export function normalizeDepartmentName(d: string | null | undefined): string {
   return (d ?? "").trim().toLowerCase();
 }
@@ -14,6 +19,7 @@ const AREA_TO_DEPT: Record<string, string> = {
   SCM: "scm",
   Deployment: "deployment",
   Cloud: "cloud",
+  HR: "hr",
 };
 
 export function canSeeNavGroup(
@@ -26,7 +32,11 @@ export function canSeeNavGroup(
   if (user.role === "SUPER_ADMIN") {
     return true;
   }
+  // Sidebar "Overview": Dashboard, My Tasks, Inbox — every signed-in user (not department-scoped).
   if (groupTitle === "Overview") {
+    return true;
+  }
+  if (groupTitle === PEOPLE_WORKPLACE_SECTION_TITLE) {
     return true;
   }
   if (groupTitle === "Tools") {
@@ -34,6 +44,9 @@ export function canSeeNavGroup(
   }
   if (groupTitle === "Admin") {
     return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+  }
+  if (groupTitle === "HR") {
+    return canAccessHr(user);
   }
   const dept = normalizeDepartmentName(user.department);
   if (!dept) {
@@ -63,6 +76,14 @@ export function canAccessPath(
 
   const path = pathname.split("?")[0] || "/";
 
+  if (path === "/attendance/team" || path.startsWith("/attendance/team/")) {
+    return user.role === "ADMIN" || user.role === "SUPER_ADMIN" || user.role === "MANAGEMENT";
+  }
+
+  if (isUniversalWorkspacePath(path)) {
+    return true;
+  }
+
   if (path.startsWith("/settings")) {
     return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
   }
@@ -75,21 +96,13 @@ export function canAccessPath(
     return user.role === "SUPER_ADMIN";
   }
 
+  if (path.startsWith("/hr")) {
+    return canAccessHr(user);
+  }
+
   // Generic admin lane (legacy page)
   if (path === "/admin" || path.startsWith("/admin/")) {
     return user.role === "ADMIN" || user.role === "SUPER_ADMIN";
-  }
-
-  const overview =
-    path === "/" ||
-    path.startsWith("/dashboard") ||
-    path.startsWith("/workspace") ||
-    path.startsWith("/tasks") ||
-    path.startsWith("/inbox") ||
-    path.startsWith("/profile");
-
-  if (overview) {
-    return true;
   }
 
   const dept = normalizeDepartmentName(user.department);

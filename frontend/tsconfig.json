@@ -1,5 +1,12 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../shared/*"],
+      "#leave-deps": ["./src/leavePageDeps.ts"],
+      "#reimbursement-deps": ["./src/reimbursementPageDeps.ts"],
+      "#meeting-rooms-deps": ["./src/meetingRoomsPageDeps.ts"]
+    },
     "target": "ESNext",
     "useDefineForClassFields": true,
     "lib": [

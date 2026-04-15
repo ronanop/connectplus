@@ -1,0 +1,4 @@
+# Generated from prisma/schema.prisma (run: npx prisma generate)
+src/generated/prisma/
+
+uploads/

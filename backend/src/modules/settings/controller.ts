@@ -64,7 +64,16 @@ export const listMicrosoftOrgUsers = async (req: AuthenticatedRequest, res: Resp
 
 export const importMicrosoftOrgUsers = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const { defaultRoleId, domain } = req.body as { defaultRoleId: number; domain: string };
-  const result = await settingsService.importMicrosoftOrgUsersMissing(defaultRoleId, domain);
+  const actorId = req.user?.id;
+  const actor =
+    actorId != null
+      ? await prisma.user.findUnique({ where: { id: actorId }, select: { organizationId: true } })
+      : null;
+  const result = await settingsService.importMicrosoftOrgUsersMissing(
+    defaultRoleId,
+    domain,
+    actor?.organizationId ?? undefined,
+  );
   res.json({ success: true, data: result, message: "" });
 };
 

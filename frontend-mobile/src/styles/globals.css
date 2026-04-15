@@ -14,19 +14,39 @@
   --success: #059669;
   --warning: #d97706;
   --danger: #dc2626;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg-base);
   color: var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  /* Avoid overflow-x + isolation here: they break position:fixed bottom bars inside WebKit. */
 }
 
 *,
@@ -40,4 +60,41 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+@layer utilities {
+  /** Scrollable but no visible scrollbar (trackpad, touch, wheel still work). */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+@layer components {
+  /**
+   * Primary tap target: short press feedback without layout shift.
+   */
+  .mobile-tap {
+    @apply touch-manipulation select-none transition-[transform,opacity,box-shadow,background-color] duration-200 ease-out will-change-transform;
+  }
+
+  .mobile-tap:active:not(:disabled) {
+    @apply scale-[0.98] opacity-95;
+  }
+
+  .mobile-tap:disabled {
+    @apply cursor-not-allowed;
+  }
+
+  /**
+   * Subtle press for filled / high-contrast buttons.
+   */
+  .mobile-tap-strong:active:not(:disabled) {
+    @apply scale-[0.97];
+  }
 }

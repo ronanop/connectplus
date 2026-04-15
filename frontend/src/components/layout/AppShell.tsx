@@ -1,4 +1,6 @@
 import { ReactNode, useEffect } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { AccessGuard } from "./AccessGuard";
@@ -10,6 +12,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
   const setUser = useAuthStore(s => s.setUser);
 
@@ -25,10 +28,12 @@ export function AppShell({ children }: AppShellProps) {
           setUser(prev ? { ...prev, ...userData } : userData);
         }
       })
-      .catch(() => {
-        // Unauthenticated or session expired
+      .catch(err => {
+        if (axios.isAxiosError(err) && err.response?.status === 401) {
+          navigate("/login", { replace: true });
+        }
       });
-  }, [setUser]);
+  }, [setUser, navigate]);
 
   return (
     <div className="flex h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">

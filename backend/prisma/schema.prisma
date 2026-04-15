@@ -1,5 +1,7 @@
 generator client {
   provider = "prisma-client-js"
+  // Avoid Windows EPERM when the dev server locks node_modules/.prisma/query_engine-*.dll
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -68,7 +70,73 @@ model User {
   tagsJson      Json?  @map("tags_json")
   companiesCreated Company[] @relation("CompaniesCreated")
 
+  workTasksCreated    WorkTask[]        @relation("WorkTaskCreatedBy")
+  workTasksAssigned   WorkTask[]        @relation("WorkTaskAssignee")
+  workTaskComments    WorkTaskComment[]
+  workTaskActivities  WorkTaskActivity[]
+  hierarchyTaskAssignees           HierarchyTaskAssignee[]
+  createdHierarchyTasks            HierarchyTask[]          @relation("HierarchyTaskAssigner")
+  hierarchyTaskComments          HierarchyTaskComment[]
+  hierarchyTaskActivities        HierarchyTaskActivity[]
+  hierarchyTaskArtifactsUploaded HierarchyTaskArtifact[]  @relation("HierarchyTaskArtifactUploader")
+  hierarchyCompletionRequested   HierarchyTask[]          @relation("HierarchyTaskCompletionRequester")
+  portfolioProjectsCreated         PortfolioProject[]      @relation("PortfolioProjectCreator")
+  portfolioProjectMembers          PortfolioProjectMember[]
+  portfolioProjectArtifactsUploaded PortfolioProjectArtifact[] @relation("PortfolioProjectArtifactUploader")
+  portfolioProjectActivities       PortfolioProjectActivity[]
+  portfolioProjectsSponsored     PortfolioProject[]           @relation("PortfolioProjectSponsor")
+  portfolioJournalEntries          PortfolioProjectJournalEntry[]
+  hrEmployeeProfile   HrEmployee?
+  leaveRequestsSubmitted LeaveRequest[] @relation("LeaveRequestUser")
+  leaveRequestsReviewed  LeaveRequest[] @relation("LeaveRequestReviewer")
+  reimbursementClaimsSubmitted ReimbursementClaim[] @relation("ReimbursementClaimUser")
+  reimbursementClaimsReviewed  ReimbursementClaim[] @relation("ReimbursementClaimReviewer")
+  meetingRoomBookings    MeetingRoomBooking[]
+  attendances            Attendance[]
+  attendanceOverrides    Attendance[]   @relation("AttendanceOverride")
+
+  profilePhotoPath String?   @map("profile_photo_path")
+  faceDescriptor   Json?     @map("face_descriptor")
+  faceEnrolledAt   DateTime? @map("face_enrolled_at")
+
+  userSkills           UserSkill[]
+  userCertifications   UserCertification[]
+
   @@map("users")
+}
+
+model UserSkill {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  name          String   @db.VarChar(200)
+  proficiency   String?  @db.VarChar(120)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_skills")
+}
+
+model UserCertification {
+  id                        Int       @id @default(autoincrement())
+  userId                    Int       @map("user_id")
+  name                      String    @db.VarChar(300)
+  issuer                    String?   @db.VarChar(200)
+  credentialId              String?   @map("credential_id") @db.VarChar(200)
+  issuedOn                  DateTime? @map("issued_on") @db.Date
+  expiresOn                 DateTime? @map("expires_on") @db.Date
+  notes                     String?   @db.Text
+  certificateStoredPath     String?   @map("certificate_stored_path")
+  certificateOriginalName   String?   @map("certificate_original_name") @db.VarChar(300)
+  certificateMimeType       String?   @map("certificate_mime_type") @db.VarChar(120)
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+  user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_certifications")
 }
 
 model Role {
@@ -860,6 +928,7 @@ model Notification {
   message     String
   priority    String
   channels    Json
+  metadata    Json?
   readAt      DateTime? @map("read_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
@@ -908,10 +977,466 @@ model Organization {
   modules   Json     @map("modules_json")
   createdAt DateTime @default(now()) @map("created_at")
 
-  users     User[]
-  companies Company[]
+  users      User[]
+  companies  Company[]
+  workTasks  WorkTask[]
+  hierarchyTasks HierarchyTask[]
+  hrDepartments HrDepartment[]
+  hrEmployees   HrEmployee[]
+  leaveRequests LeaveRequest[]
+  reimbursementClaims ReimbursementClaim[]
+  meetingRoomBookings MeetingRoomBooking[]
+  attendanceConfig AttendanceConfig?
+  attendances      Attendance[]
+  portfolioProjects PortfolioProject[]
 
   @@map("organizations")
+}
+
+enum AttendanceStatus {
+  PENDING
+  PRESENT
+  FACE_FAILED
+  GEO_FAILED
+  MANUAL_PRESENT
+  MANUAL_ABSENT
+  ABSENT
+}
+
+model AttendanceConfig {
+  id                 Int      @id @default(autoincrement())
+  organizationId     Int      @unique @map("organization_id")
+  officeLat          Float    @map("office_lat")
+  officeLng          Float    @map("office_lng")
+  perimeterMeters    Int      @default(70) @map("perimeter_meters")
+  faceMatchThreshold Float    @default(0.70) @map("face_match_threshold")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("attendance_configs")
+}
+
+model Attendance {
+  id              Int              @id @default(autoincrement())
+  userId          Int              @map("user_id")
+  organizationId  Int              @map("organization_id")
+  date            DateTime         @db.Date
+  checkInAt       DateTime?        @map("check_in_at")
+  checkOutAt      DateTime?        @map("check_out_at")
+  checkInLat      Float?           @map("check_in_lat")
+  checkInLng      Float?           @map("check_in_lng")
+  checkInDistance Float?           @map("check_in_distance")
+  faceMatchScore  Float?           @map("face_match_score")
+  checkOutLat      Float?           @map("check_out_lat")
+  checkOutLng      Float?           @map("check_out_lng")
+  checkOutDistance Float?           @map("check_out_distance")
+  checkOutFaceMatchScore Float?     @map("check_out_face_match_score")
+  status          AttendanceStatus @default(PENDING)
+  overriddenById  Int?             @map("overridden_by_id")
+  overrideNote    String?          @map("override_note") @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  overriddenBy User?        @relation("AttendanceOverride", fields: [overriddenById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, date])
+  @@index([organizationId, date])
+  @@index([userId])
+  @@map("attendances")
+}
+
+model LeaveRequest {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  userId         Int       @map("user_id")
+  startDate      DateTime  @map("start_date") @db.Date
+  endDate        DateTime  @map("end_date") @db.Date
+  leaveType      String    @default("OTHER") @map("leave_type")
+  reason         String    @db.Text
+  status         String    @default("PENDING")
+  reviewedById   Int?      @map("reviewed_by_id")
+  reviewedAt     DateTime? @map("reviewed_at")
+  hrComment      String?   @map("hr_comment") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("LeaveRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("LeaveRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([userId, startDate])
+  @@map("leave_requests")
+}
+
+model MeetingRoomBooking {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  userId         Int      @map("user_id")
+  roomKey        String   @map("room_key") @db.VarChar(40)
+  title          String   @db.VarChar(300)
+  startAt        DateTime @map("start_at")
+  endAt          DateTime @map("end_at")
+  attendees      String?  @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, roomKey, startAt])
+  @@index([userId, startAt])
+  @@map("meeting_room_bookings")
+}
+
+model ReimbursementClaim {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  userId         Int       @map("user_id")
+  expenseDate    DateTime  @map("expense_date") @db.Date
+  amount         Decimal   @db.Decimal(12, 2)
+  notes          String?   @db.Text
+  status         String    @default("PENDING")
+  reviewedById   Int?      @map("reviewed_by_id")
+  reviewedAt     DateTime? @map("reviewed_at")
+  hrComment      String?   @map("hr_comment") @db.Text
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("ReimbursementClaimUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("ReimbursementClaimReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  attachments  ReimbursementAttachment[]
+
+  @@index([organizationId, status])
+  @@index([userId, expenseDate])
+  @@map("reimbursement_claims")
+}
+
+model ReimbursementAttachment {
+  id           Int      @id @default(autoincrement())
+  claimId      Int      @map("claim_id")
+  storedPath   String   @map("stored_path")
+  originalName String   @map("original_name")
+  mimeType     String   @map("mime_type")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  claim ReimbursementClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@map("reimbursement_attachments")
+}
+
+model WorkTask {
+  id             Int       @id @default(autoincrement())
+  organizationId Int       @map("organization_id")
+  // Profile-tag task flow: employee | manager | organization_member | intern | hr
+  taskFlowKey    String    @default("employee") @map("task_flow_key")
+  title          String
+  description    String?
+  status         String
+  priority       String
+  dueDate        DateTime? @map("due_date")
+  createdById    Int       @map("created_by_id")
+  assigneeId     Int?      @map("assignee_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User               @relation("WorkTaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  assignee     User?              @relation("WorkTaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  comments     WorkTaskComment[]
+  activities   WorkTaskActivity[]
+
+  @@index([organizationId, assigneeId])
+  @@index([organizationId, status])
+  @@index([organizationId, taskFlowKey])
+  @@index([createdById])
+  @@map("work_tasks")
+}
+
+model WorkTaskComment {
+  id         Int      @id @default(autoincrement())
+  workTaskId Int      @map("work_task_id")
+  authorId   Int      @map("author_id")
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workTask WorkTask @relation(fields: [workTaskId], references: [id], onDelete: Cascade)
+  author   User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([workTaskId])
+  @@map("work_task_comments")
+}
+
+model WorkTaskActivity {
+  id         Int      @id @default(autoincrement())
+  workTaskId Int      @map("work_task_id")
+  actorId    Int      @map("actor_id")
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  workTask WorkTask @relation(fields: [workTaskId], references: [id], onDelete: Cascade)
+  actor    User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([workTaskId])
+  @@map("work_task_activities")
+}
+
+enum HierarchyTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum HierarchyTaskStatus {
+  PENDING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETION_PENDING_APPROVAL
+  COMPLETED
+  CANCELLED
+}
+
+/// DIRECT: normal assignees. DEPARTMENT_HANDOFF: org member routed to dept managers to add ICs.
+enum HierarchyTaskAssignmentMode {
+  DIRECT
+  DEPARTMENT_HANDOFF
+}
+
+model HierarchyTask {
+  id             Int                   @id @default(autoincrement())
+  organizationId Int                   @map("organization_id")
+  title          String
+  description    String?
+  priority       HierarchyTaskPriority
+  status         HierarchyTaskStatus   @default(PENDING)
+  deadline       DateTime
+  assignedById   Int                   @map("assigned_by_id")
+  department     String?
+  assignmentMode          HierarchyTaskAssignmentMode @default(DIRECT) @map("assignment_mode")
+  /// CRM department when assignmentMode is DEPARTMENT_HANDOFF (managers add teammates in this dept).
+  handoffTargetDepartment String?                     @map("handoff_target_department")
+  completionRequestedById Int?                  @map("completion_requested_by_id")
+  completionRequestedAt   DateTime?             @map("completion_requested_at")
+  completionArtifactId    Int?                  @unique @map("completion_artifact_id")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedBy   User                     @relation("HierarchyTaskAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+  completionRequestedBy User?           @relation("HierarchyTaskCompletionRequester", fields: [completionRequestedById], references: [id], onDelete: SetNull)
+  completionArtifact   HierarchyTaskArtifact? @relation("CompletionArtifact", fields: [completionArtifactId], references: [id], onDelete: SetNull)
+  assignees    HierarchyTaskAssignee[]
+  artifacts    HierarchyTaskArtifact[] @relation("TaskArtifacts")
+  comments     HierarchyTaskComment[]
+  activities   HierarchyTaskActivity[]
+
+  @@index([organizationId])
+  @@index([assignedById])
+  @@map("hierarchy_tasks")
+}
+
+model HierarchyTaskArtifact {
+  id           Int      @id @default(autoincrement())
+  taskId       Int      @map("task_id")
+  uploadedById Int      @map("uploaded_by_id")
+  kind         String   @db.VarChar(32)
+  fileName     String   @map("file_name")
+  storedPath   String   @map("stored_path")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  note         String?
+  statusFrom   String?  @map("status_from") @db.VarChar(32)
+  statusTo     String?  @map("status_to") @db.VarChar(32)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  task                 HierarchyTask  @relation("TaskArtifacts", fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy           User           @relation("HierarchyTaskArtifactUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  pendingCompletionFor HierarchyTask? @relation("CompletionArtifact")
+
+  @@index([taskId])
+  @@map("hierarchy_task_artifacts")
+}
+
+model HierarchyTaskAssignee {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task HierarchyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("hierarchy_task_assignees")
+}
+
+model HierarchyTaskComment {
+  id        Int           @id @default(autoincrement())
+  taskId    Int           @map("task_id")
+  userId    Int           @map("user_id")
+  content   String
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  task HierarchyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("hierarchy_task_comments")
+}
+
+model HierarchyTaskActivity {
+  id        Int           @id @default(autoincrement())
+  taskId    Int           @map("task_id")
+  userId    Int           @map("user_id")
+  action    String
+  meta      Json?
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  task HierarchyTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("hierarchy_task_activities")
+}
+
+enum PortfolioDiscipline {
+  CLOUD
+  SOFTWARE
+}
+
+enum PortfolioProjectKind {
+  INTERNAL
+  CLIENT_POC
+  CLIENT_PROJECT
+}
+
+enum PortfolioJournalEntryType {
+  UPDATE
+  WORK_LOG
+}
+
+enum PortfolioProjectStatus {
+  PLANNED
+  IN_PROGRESS
+  BLOCKED
+  ON_HOLD
+  DONE
+  CANCELLED
+}
+
+enum PortfolioMemberRole {
+  LEAD
+  MEMBER
+  VIEWER
+}
+
+model PortfolioProject {
+  id             Int                   @id @default(autoincrement())
+  organizationId Int                   @map("organization_id")
+  kind           PortfolioProjectKind
+  name           String
+  projectType    String?               @map("project_type") @db.VarChar(120)
+  scopeOfWork    String?               @map("scope_of_work") @db.Text
+  description    String?
+  clientName     String?               @map("client_name")
+  sponsorUserId  Int?                  @map("sponsor_user_id")
+  tentativeCompletionDate DateTime?    @map("tentative_completion_date") @db.Date
+  status         PortfolioProjectStatus @default(PLANNED)
+  disciplines    PortfolioDiscipline[] @default([])
+  createdById    Int                   @map("created_by_id")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User                     @relation("PortfolioProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  sponsor      User?                    @relation("PortfolioProjectSponsor", fields: [sponsorUserId], references: [id], onDelete: SetNull)
+  members      PortfolioProjectMember[]
+  artifacts    PortfolioProjectArtifact[]
+  activities   PortfolioProjectActivity[]
+  journalEntries PortfolioProjectJournalEntry[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, kind])
+  @@index([organizationId, updatedAt])
+  @@map("portfolio_projects")
+}
+
+model PortfolioProjectMember {
+  id        Int                 @id @default(autoincrement())
+  projectId Int                 @map("project_id")
+  userId    Int                 @map("user_id")
+  role      PortfolioMemberRole
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  project PortfolioProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("portfolio_project_members")
+}
+
+model PortfolioProjectArtifact {
+  id             Int      @id @default(autoincrement())
+  projectId      Int      @map("project_id")
+  journalEntryId Int?     @map("journal_entry_id")
+  uploadedById   Int      @map("uploaded_by_id")
+  kind           String   @db.VarChar(32)
+  fileName       String   @map("file_name")
+  storedPath     String   @map("stored_path")
+  mimeType       String   @map("mime_type")
+  sizeBytes      Int      @map("size_bytes")
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  project      PortfolioProject             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  journalEntry PortfolioProjectJournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  uploadedBy   User                         @relation("PortfolioProjectArtifactUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([projectId])
+  @@index([journalEntryId])
+  @@map("portfolio_project_artifacts")
+}
+
+model PortfolioProjectJournalEntry {
+  id        Int                      @id @default(autoincrement())
+  projectId Int                      @map("project_id")
+  userId    Int                      @map("user_id")
+  entryType PortfolioJournalEntryType @map("entry_type")
+  body      String                   @db.Text
+  createdAt DateTime                 @default(now()) @map("created_at")
+
+  project   PortfolioProject           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artifacts PortfolioProjectArtifact[]
+
+  @@index([projectId, createdAt])
+  @@map("portfolio_project_journal_entries")
+}
+
+model PortfolioProjectActivity {
+  id        Int      @id @default(autoincrement())
+  projectId Int      @map("project_id")
+  userId    Int      @map("user_id")
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project PortfolioProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@map("portfolio_project_activities")
 }
 
 model ApprovalConfig {
@@ -1179,4 +1704,41 @@ model PresalesActivity {
   project PresalesProject @relation(fields: [projectId], references: [id])
 
   @@index([projectId])
+}
+
+/// Org unit for HR (distinct from CRM `User.department` string).
+model HrDepartment {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  name           String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employees    HrEmployee[]
+
+  @@index([organizationId])
+  @@map("hr_departments")
+}
+
+model HrEmployee {
+  id             Int      @id @default(autoincrement())
+  organizationId Int      @map("organization_id")
+  hrDepartmentId Int?     @map("hr_department_id")
+  userId         Int?     @unique @map("user_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  email          String
+  employeeCode   String?  @map("employee_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hrDepartment HrDepartment? @relation(fields: [hrDepartmentId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([hrDepartmentId])
+  @@map("hr_employees")
 }

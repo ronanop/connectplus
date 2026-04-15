@@ -12,10 +12,14 @@ api.interceptors.response.use(
   response => response,
   error => {
     const status = error?.response?.status;
+    const reqUrl = String(error?.config?.url ?? "");
+    const isAuthProbe = reqUrl.includes("/api/auth/me");
+    const isLoginAttempt =
+      reqUrl.includes("/api/auth/login") || reqUrl.includes("/api/auth/login/microsoft/callback");
 
-    if (status === 401) {
+    if (status === 401 && !isLoginAttempt) {
       useAuthStore.getState().clearUser();
-      if (typeof window !== "undefined") {
+      if (!isAuthProbe && typeof window !== "undefined") {
         window.location.href = "/login";
       }
     }

@@ -7,8 +7,16 @@ export interface AuthUser {
   name?: string;
   email?: string;
   department?: string | null;
+  tags?: string[];
   role: Role;
   organization?: string | null;
+  organizationId?: number | null;
+  reportsToId?: number | null;
+  directReportCount?: number;
+  isManager?: boolean;
+  hasFaceRegistered?: boolean;
+  faceEnrolledAt?: string | null;
+  profilePhotoUrl?: string | null;
 }
 
 interface AuthState {

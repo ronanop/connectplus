@@ -2,6 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { validateRequest } from "../../middleware/validateRequest";
 import { authenticate } from "../../middleware/auth";
+import { hydrateAuthUserFromDb } from "../../middleware/hydrateAuthUserFromDb";
 import { requireRoles } from "../../middleware/rbac";
 import {
   approvalConfigSchema,
@@ -57,6 +58,7 @@ import {
 export const settingsRouter = Router();
 
 settingsRouter.use(authenticate);
+settingsRouter.use(hydrateAuthUserFromDb);
 settingsRouter.use(requireRoles(["ADMIN", "SUPER_ADMIN"]));
 
 settingsRouter.get("/roles", asyncHandler(listRoles));

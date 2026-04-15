@@ -1,14 +1,23 @@
 import { create } from "zustand";
 
-type Role = "SUPER_ADMIN" | "ADMIN" | "USER" | string;
+type Role = "SUPER_ADMIN" | "ADMIN" | "USER" | "MANAGEMENT" | string;
 
 interface AuthUser {
   id: number;
   name?: string;
   email?: string;
   department?: string | null;
+  /** From `/api/auth/me`; used for HR access when department name is not exactly `HR`. */
+  tags?: string[];
   role: Role;
   organization?: string | null;
+  organizationId?: number | null;
+  reportsToId?: number | null;
+  directReportCount?: number;
+  isManager?: boolean;
+  hasFaceRegistered?: boolean;
+  faceEnrolledAt?: string | null;
+  profilePhotoUrl?: string | null;
 }
 
 interface AuthState {

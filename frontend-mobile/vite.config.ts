@@ -8,6 +8,17 @@ const keyPath = path.resolve(__dirname, "../.certs/dev-key.pem");
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@shared": path.resolve(__dirname, "../shared"),
+      "#leave-deps": path.resolve(__dirname, "src/leavePageDeps.ts"),
+      "#reimbursement-deps": path.resolve(__dirname, "src/reimbursementPageDeps.ts"),
+      "@leaves-ui": path.resolve(__dirname, "../frontend/src/shared/leaves/LeavesPageContent.tsx"),
+      "@reimbursement-ui": path.resolve(__dirname, "../frontend/src/shared/reimbursement/ReimbursementPageContent.tsx"),
+      "@meeting-rooms-ui": path.resolve(__dirname, "../frontend/src/shared/meetingRooms/MeetingRoomsPageContent.tsx"),
+      "#meeting-rooms-deps": path.resolve(__dirname, "src/meetingRoomsPageDeps.ts"),
+    },
+  },
   server: {
     host: true,
     https: {

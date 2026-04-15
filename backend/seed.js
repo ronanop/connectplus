@@ -1,4 +1,4 @@
-const { PrismaClient } = require("@prisma/client");
+const { PrismaClient } = require("./src/generated/prisma");
 const bcrypt = require("bcryptjs");
 
 const prisma = new PrismaClient();
@@ -60,6 +60,21 @@ async function main() {
     },
   });
 
+  /** Default office coordinates for attendance geo-fence (ConnectPlus standard location). */
+  const OFFICE_LAT = 28.497293941267056;
+  const OFFICE_LNG = 77.16323783636463;
+  await prisma.attendanceConfig.upsert({
+    where: { organizationId: defaultOrg.id },
+    update: { officeLat: OFFICE_LAT, officeLng: OFFICE_LNG },
+    create: {
+      organizationId: defaultOrg.id,
+      officeLat: OFFICE_LAT,
+      officeLng: OFFICE_LNG,
+      perimeterMeters: 70,
+      faceMatchThreshold: 0.7,
+    },
+  });
+
   await prisma.user.upsert({
     where: { email: "superadmin@cachedigitech.com" },
     update: {},
@@ -91,6 +106,45 @@ async function main() {
     create: {
       name: "User",
       email: "user@cachedigitech.com",
+      passwordHash: userPwd,
+      roleId: userRole.id,
+      organizationId: defaultOrg.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "vikas@cachedigitech.com" },
+    update: { organizationId: defaultOrg.id },
+    create: {
+      name: "Vikas",
+      email: "vikas@cachedigitech.com",
+      passwordHash: userPwd,
+      roleId: userRole.id,
+      organizationId: defaultOrg.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "anil2@cachedigitech.com" },
+    update: { organizationId: defaultOrg.id },
+    create: {
+      name: "Anil",
+      email: "anil2@cachedigitech.com",
+      passwordHash: userPwd,
+      roleId: userRole.id,
+      organizationId: defaultOrg.id,
+      isActive: true,
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: "shraddha@cachedigitech.com" },
+    update: { organizationId: defaultOrg.id },
+    create: {
+      name: "Shraddha",
+      email: "shraddha@cachedigitech.com",
       passwordHash: userPwd,
       roleId: userRole.id,
       organizationId: defaultOrg.id,

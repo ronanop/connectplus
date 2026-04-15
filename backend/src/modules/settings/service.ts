@@ -7,12 +7,14 @@ import { ApiError } from "../../middleware/errorHandler";
 import { mergeUserInto } from "./userMerge";
 import { normalizeEmailKey, normalizeNameKey } from "../../utils/normalizeUserIdentity";
 import { CONNECTPLUS_KEEPER_EMAIL } from "./keeperEmail";
+import { tagsFromJson } from "../../lib/tagsFromJson";
 
 export type MicrosoftOrgUserRow = {
   graphId: string;
   displayName: string;
   email: string;
   department: string | null;
+  jobTitle: string | null;
   userPrincipalName: string;
 };
 
@@ -43,33 +45,6 @@ async function ensureDefaultDepartments(): Promise<void> {
       await prisma.department.create({ data: { name } });
     }
   }
-}
-
-function tagsFromJson(v: unknown): string[] {
-  if (v == null) {
-    return [];
-  }
-  if (!Array.isArray(v)) {
-    return [];
-  }
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const x of v) {
-    if (typeof x !== "string") {
-      continue;
-    }
-    const n = x.trim();
-    if (!n) {
-      continue;
-    }
-    const key = n.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push(n);
-  }
-  return out;
 }
 
 function normalizeTagsList(tags: string[] | undefined): string[] {
@@ -139,7 +114,7 @@ async function fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix: string): Promi
   }
 
   const collected: MicrosoftOrgUserRow[] = [];
-  let path: string | null = "/users?$select=id,displayName,mail,userPrincipalName,department&$top=999";
+  let path: string | null = "/users?$select=id,displayName,mail,userPrincipalName,department,jobTitle&$top=999";
 
   try {
     while (path) {
@@ -156,11 +131,13 @@ async function fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix: string): Promi
         if (!email) {
           continue;
         }
+        const jt = u.jobTitle;
         collected.push({
           graphId: u.id,
           displayName: u.displayName || email.split("@")[0],
           email,
           department: u.department ?? null,
+          jobTitle: typeof jt === "string" && jt.trim() ? jt.trim() : null,
           userPrincipalName: u.userPrincipalName || "",
         });
       }
@@ -438,14 +415,159 @@ Password: ${generatedPassword}
     await ensureDefaultDepartments();
     return prisma.department.findMany({ orderBy: { name: "asc" } });
   },
-  createDepartment: (data: { name: string }) => prisma.department.create({ data }),
+
+  listDepartmentsWithEmployeeCounts: async () => {
+    await ensureDefaultDepartments();
+    const depts = await prisma.department.findMany({ orderBy: { name: "asc" } });
+    const grouped = await prisma.user.groupBy({
+      by: ["department"],
+      where: { department: { not: null } },
+      _count: { _all: true },
+    });
+    const countByName = new Map<string, number>();
+    for (const g of grouped) {
+      if (g.department) {
+        countByName.set(g.department, g._count._all);
+      }
+    }
+    return depts.map(d => ({
+      id: d.id,
+      name: d.name,
+      employeeCount: countByName.get(d.name) ?? 0,
+    }));
+  },
+
+  listUsersForCrmDepartment: async (departmentId: number) => {
+    const row = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!row) {
+      throw new ApiError(404, "Department not found");
+    }
+    const users = await prisma.user.findMany({
+      where: { department: row.name },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        isActive: true,
+        role: { select: { name: true } },
+      },
+    });
+    return users.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      isActive: u.isActive,
+      roleName: u.role.name,
+    }));
+  },
+
+  getUserProfileForHr: async (userId: number) => {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        department: true,
+        isActive: true,
+        createdAt: true,
+        tagsJson: true,
+        organizationId: true,
+        reportsToId: true,
+        role: { select: { name: true } },
+        organization: { select: { name: true, code: true } },
+        reportsTo: { select: { id: true, name: true, email: true } },
+        _count: { select: { directReports: true } },
+      },
+    });
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      department: user.department,
+      isActive: user.isActive,
+      createdAt: user.createdAt.toISOString(),
+      tags: tagsFromJson(user.tagsJson),
+      role: user.role.name,
+      organization: user.organization?.name ?? null,
+      organizationCode: user.organization?.code ?? null,
+      organizationId: user.organizationId,
+      reportsToId: user.reportsToId,
+      reportsTo: user.reportsTo,
+      directReportCount: user._count.directReports,
+      isManager: user._count.directReports > 0,
+    };
+  },
+  createDepartment: async (data: { name: string }) => {
+    const name = data.name.trim();
+    if (!name) {
+      throw new ApiError(400, "Name is required");
+    }
+    try {
+      return await prisma.department.create({ data: { name } });
+    } catch (e: unknown) {
+      const code = e && typeof e === "object" && "code" in e ? (e as { code?: string }).code : undefined;
+      if (code === "P2002") {
+        throw new ApiError(409, "A department with this name already exists");
+      }
+      throw e;
+    }
+  },
+
+  updateDepartment: async (id: number, data: { name: string }) => {
+    const trimmed = data.name.trim();
+    if (!trimmed) {
+      throw new ApiError(400, "Name is required");
+    }
+    const row = await prisma.department.findUnique({ where: { id } });
+    if (!row) {
+      throw new ApiError(404, "Department not found");
+    }
+    const oldName = row.name;
+    if (oldName === trimmed) {
+      return row;
+    }
+    const conflict = await prisma.department.findFirst({
+      where: { name: trimmed, NOT: { id } },
+    });
+    if (conflict) {
+      throw new ApiError(409, "A department with this name already exists");
+    }
+    return prisma.$transaction(async tx => {
+      await tx.user.updateMany({ where: { department: oldName }, data: { department: trimmed } });
+      return tx.department.update({ where: { id }, data: { name: trimmed } });
+    });
+  },
+
+  deleteDepartment: async (id: number) => {
+    const row = await prisma.department.findUnique({ where: { id } });
+    if (!row) {
+      throw new ApiError(404, "Department not found");
+    }
+    const count = await prisma.user.count({ where: { department: row.name } });
+    if (count > 0) {
+      throw new ApiError(
+        400,
+        `Cannot delete: ${count} user(s) are assigned to this department. Reassign them first.`,
+      );
+    }
+    await prisma.department.delete({ where: { id } });
+  },
 
   listSkillTags: () => prisma.skillTag.findMany(),
   createSkillTag: (data: { name: string }) => prisma.skillTag.create({ data }),
 
   listMicrosoftOrgUsersByDomainSuffix: (domainSuffix: string) => fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix),
 
-  importMicrosoftOrgUsersMissing: async (defaultRoleId: number, domainSuffix: string) => {
+  importMicrosoftOrgUsersMissing: async (
+    defaultRoleId: number,
+    domainSuffix: string,
+    organizationId?: number | null,
+  ) => {
     const { users } = await fetchMicrosoftOrgUsersByDomainSuffix(domainSuffix);
     const role = await prisma.role.findUnique({ where: { id: defaultRoleId } });
     if (!role) {
@@ -464,6 +586,10 @@ Password: ${generatedPassword}
         continue;
       }
       const passwordHash = await bcrypt.hash(crypto.randomBytes(16).toString("base64url"), 10);
+      const tagList = normalizeTagsList([
+        ...(row.jobTitle ? [row.jobTitle] : []),
+        ...(row.department?.trim() ? [`dept:${row.department.trim()}`] : []),
+      ]);
       await prisma.user.create({
         data: {
           name: row.displayName,
@@ -471,6 +597,8 @@ Password: ${generatedPassword}
           passwordHash,
           roleId: defaultRoleId,
           department: row.department ?? undefined,
+          ...(organizationId != null ? { organizationId } : {}),
+          ...(tagList.length ? { tagsJson: tagList } : {}),
         },
       });
       have.add(emailLower);

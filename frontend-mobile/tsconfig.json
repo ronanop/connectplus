@@ -1,5 +1,15 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../shared/*"],
+      "#leave-deps": ["./src/leavePageDeps.ts"],
+      "#reimbursement-deps": ["./src/reimbursementPageDeps.ts"],
+      "@leaves-ui": ["../frontend/src/shared/leaves/LeavesPageContent.tsx"],
+      "@reimbursement-ui": ["../frontend/src/shared/reimbursement/ReimbursementPageContent.tsx"],
+      "@meeting-rooms-ui": ["../frontend/src/shared/meetingRooms/MeetingRoomsPageContent.tsx"],
+      "#meeting-rooms-deps": ["./src/meetingRoomsPageDeps.ts"]
+    },
     "target": "ESNext",
     "useDefineForClassFields": true,
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
