@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react-swc";
 
 const certPath = path.resolve(__dirname, "../.certs/dev-cert.pem");
 const keyPath = path.resolve(__dirname, "../.certs/dev-key.pem");
+const hasDevCerts = fs.existsSync(certPath) && fs.existsSync(keyPath);
 
 export default defineConfig({
   plugins: [react()],
@@ -18,10 +19,14 @@ export default defineConfig({
   },
   server: {
     host: true,
-    https: {
-      cert: fs.readFileSync(certPath),
-      key: fs.readFileSync(keyPath),
-    },
+    ...(hasDevCerts
+      ? {
+          https: {
+            cert: fs.readFileSync(certPath),
+            key: fs.readFileSync(keyPath),
+          },
+        }
+      : {}),
     port: 3000,
     proxy: {
       "/api": {
