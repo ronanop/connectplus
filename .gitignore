@@ -32,3 +32,6 @@ frontend-mobile/dist/
 # Framework / tooling artifacts
 frontend/.next/
 *.tsbuildinfo
+
+# Local-only deployment notes (do not commit or push)
+UBUNTU_DEPLOYMENT_CONTEXT.md

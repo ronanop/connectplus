@@ -10,7 +10,15 @@ const hasDevCerts = fs.existsSync(certPath) && fs.existsSync(keyPath);
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // Shared UI is imported from ../frontend — without this, bare imports there can resolve
+    // to frontend/node_modules (e.g. framer-motion v11) while the mobile app uses v12,
+    // causing duplicate libraries and a blank page / useContext errors on routes like /meeting-rooms.
+    dedupe: ["react", "react-dom", "framer-motion", "@tanstack/react-query"],
     alias: {
+      "framer-motion": path.resolve(__dirname, "node_modules/framer-motion"),
+      "date-fns": path.resolve(__dirname, "node_modules/date-fns"),
+      "lucide-react": path.resolve(__dirname, "node_modules/lucide-react"),
+      "@tanstack/react-query": path.resolve(__dirname, "node_modules/@tanstack/react-query"),
       "@shared": path.resolve(__dirname, "../shared"),
       "#leave-deps": path.resolve(__dirname, "src/leavePageDeps.ts"),
       "#reimbursement-deps": path.resolve(__dirname, "src/reimbursementPageDeps.ts"),

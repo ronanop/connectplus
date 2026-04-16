@@ -10,6 +10,8 @@ const hasDevCerts = fs.existsSync(certPath) && fs.existsSync(keyPath);
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    // Avoid two React copies (hooks like useContext read a null dispatcher).
+    dedupe: ["react", "react-dom"],
     alias: {
       "@shared": path.resolve(__dirname, "../shared"),
       "#leave-deps": path.resolve(__dirname, "src/leavePageDeps.ts"),
